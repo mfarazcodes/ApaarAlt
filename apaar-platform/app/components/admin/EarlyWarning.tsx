@@ -30,7 +30,7 @@ export default function EarlyWarning() {
             <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-white/75">
               {s.result.reasons.map((r) => <li key={r}>{r}</li>)}
             </ul>
-            <p className="mt-3 flex items-start gap-2 text-sm text-accent">
+            <p className="mt-3 flex items-start gap-2 text-sm text-accent-soft">
               <HeartHandshake width={16} height={16} className={`${ICON} mt-0.5`} />
               {s.result.suggestion}
             </p>

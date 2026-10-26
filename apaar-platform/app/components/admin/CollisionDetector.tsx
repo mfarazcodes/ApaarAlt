@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Ghost, GitCompareArrows } from "lucide-react";
+import { Download, Ghost, GitCompareArrows } from "lucide-react";
+import { toCsv } from "@/lib/csvExport";
 import type { DiscrepancyFlag } from "@/lib/fuzzyMatcher";
 import type { GhostCandidate } from "@/lib/fuzzySamples";
 import { api, errorText } from "../portal/api";
+import { downloadCsv } from "../portal/csvDownload";
 import { Button, Card, Eyebrow, ICON, Notice, Pill, SectionTitle } from "../portal/ui";
 
 const SEV_TONE = { HIGH: "red", MEDIUM: "amber", LOW: "neutral" } as const;
@@ -23,6 +25,22 @@ export default function CollisionDetector() {
 
   const open = flags.filter((f) => !dismissed.includes(f.id));
 
+  function exportFlags() {
+    downloadCsv(
+      "dual-enrolment-flags.csv",
+      toCsv(
+        open.map((f) => ({ ...f, evidence: f.evidence.join(" | ") })),
+        [
+          { key: "title", header: "Flag" },
+          { key: "severity", header: "Severity" },
+          { key: "reason", header: "Reason" },
+          { key: "evidence", header: "Evidence" },
+          { key: "suggestedAction", header: "Suggested action" },
+        ]
+      )
+    );
+  }
+
   return (
     <Card>
       <SectionTitle
@@ -32,13 +50,19 @@ export default function CollisionDetector() {
       />
       {error && <Notice tone="red">{error}</Notice>}
 
-      <Eyebrow>Cross-college dual enrolment</Eyebrow>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Eyebrow>Cross-college dual enrolment</Eyebrow>
+        <Button size="sm" disabled={open.length === 0} onClick={exportFlags}>
+          <Download width={16} height={16} className={ICON} />
+          Export as CSV
+        </Button>
+      </div>
       <ul className="mt-3 space-y-3">
         {open.map((f) => (
           <li key={f.id} className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold">
-                <GitCompareArrows width={16} height={16} className={`${ICON} text-accent`} />
+                <GitCompareArrows width={16} height={16} className={`${ICON} text-accent-soft`} />
                 {f.title}
               </p>
               <Pill tone={SEV_TONE[f.severity]}>{f.severity}</Pill>
@@ -49,7 +73,7 @@ export default function CollisionDetector() {
               {f.evidence.map((e) => <li key={e}>{e}</li>)}
             </ul>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-accent">{f.suggestedAction}</p>
+              <p className="text-xs text-accent-soft">{f.suggestedAction}</p>
               <Button size="sm" onClick={() => setDismissed((d) => [...d, f.id])}>Mark as reviewed</Button>
             </div>
           </li>

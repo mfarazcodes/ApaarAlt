@@ -113,8 +113,8 @@ export default function CircuitHero() {
 
         <p className="mx-auto mt-7 max-w-2xl text-pretty text-base leading-relaxed text-deep/60 sm:text-lg">
           Bridge College ERPs, AICTE Compliance, NAD/ABC Credits, and Student Consent in
-          one zero-timeout architecture—eliminating demographic API rejections and degree
-          fraud.
+          one architecture that catches demographic mismatches before submission and keeps
+          working through portal timeouts.
         </p>
 
         <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">

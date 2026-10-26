@@ -1,12 +1,20 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
+import { demoMode } from "@/lib/config";
+import { translate } from "@/lib/i18n";
+import { currentLang } from "@/lib/lang-server";
+import { PAGE_ACCESS } from "@/lib/personas";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { I18nProvider, LanguageSwitcher } from "./I18n";
+import { ConfigBanner, SessionBar } from "./SessionBar";
 import ThemeSwitcher from "./ThemeSwitcher";
 
 const PORTALS = [
-  { href: "/admin", label: "College & AICTE" },
-  { href: "/student", label: "Digital Twin" },
-  { href: "/employer", label: "Smart QR Verify" },
+  { href: "/admin", key: "nav.admin" },
+  { href: "/student", key: "nav.student" },
+  { href: "/employer", key: "nav.employer" },
 ] as const;
 
 /* A calmer cousin of the hero circuit: a few traces and one pulse, behind everything. */
@@ -52,7 +60,7 @@ function Backdrop() {
   );
 }
 
-export default function PortalShell({
+export default async function PortalShell({
   active,
   title,
   subtitle,
@@ -63,8 +71,14 @@ export default function PortalShell({
   subtitle: string;
   children: ReactNode;
 }) {
+  const lang = await currentLang();
+  const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  // A person only sees the portals their role can open.
+  const portals = session ? PORTALS.filter((p) => PAGE_ACCESS[p.href].includes(session.role)) : PORTALS;
   return (
+    <I18nProvider lang={lang}>
     <div className="min-h-screen p-3 sm:p-5">
+      <a href="#main-content" className="sr-only rounded-xl bg-paper px-4 py-2 text-sm font-semibold text-deep focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]">{translate(lang, "a11y.skip")}</a>
       <div className="relative mx-auto max-w-[1400px] overflow-hidden rounded-[28px] bg-deep text-white">
         <Backdrop />
 
@@ -76,8 +90,8 @@ export default function PortalShell({
             <span className="text-[17px] font-semibold tracking-tight">APAAR Bridge</span>
           </Link>
 
-          <nav aria-label="Portals" className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
-            {PORTALS.map((p) => (
+          <nav aria-label={translate(lang, "nav.portals")} className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
+            {portals.map((p) => (
               <Link
                 key={p.href}
                 href={p.href}
@@ -86,15 +100,24 @@ export default function PortalShell({
                   p.href === active ? "bg-paper text-deep" : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                {p.label}
+                {translate(lang, p.key)}
               </Link>
             ))}
           </nav>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+            <LanguageSwitcher />
             <ThemeSwitcher variant="dark" />
           </div>
         </header>
+
+        <main id="main-content" tabIndex={-1} className="outline-none">
+        {session && (
+          <div className="relative z-10 px-4 pt-4 sm:px-8">
+            <SessionBar name={session.name} roleLabel={translate(lang, `role.${session.role}`)} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
+          </div>
+        )}
+        <ConfigBanner />
 
         <div className="relative z-10 px-4 pb-16 pt-12 sm:px-8">
           <div className="mb-10 max-w-3xl">
@@ -103,7 +126,9 @@ export default function PortalShell({
           </div>
           {children}
         </div>
+        </main>
       </div>
     </div>
+    </I18nProvider>
   );
 }

@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { ConfigError } from "./errors";
+import { isDevLike, requireSecret } from "./config";
 
 /**
  * Zero-PII Tokenization & CERT-In Security Engine
@@ -11,16 +13,17 @@ import crypto from "crypto";
  * 4. Sliding-window rate-limiter for third-party ERP queries with burst-attack defence.
  */
 
-// A development fallback keeps the demo runnable; production must supply its own secret.
+// The development pepper is public in this repository. It is accepted only when NODE_ENV is development or test,
+// so a deployment that forgets VAULT_PEPPER fails loudly instead of producing guessable tokens.
 const DEV_PEPPER = "apaar-bridge-dev-only-pepper";
 
 function pepper(): string {
-  const fromEnv = process.env.VAULT_PEPPER;
-  if (fromEnv) return fromEnv;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("VAULT_PEPPER must be set in production; refusing to tokenize with the development pepper.");
-  }
-  return DEV_PEPPER;
+  return requireSecret("VAULT_PEPPER", DEV_PEPPER);
+}
+
+/** One salt per institution, fixed on the server. A client never chooses it. */
+export function tenantSalt(): string {
+  return process.env.TOKEN_SALT || "apaar-bridge-demo-tenant";
 }
 
 /** Keyed hash used for vault tokens and for sealing receipts. */
@@ -124,55 +127,115 @@ export function tokenizeDemographicId(rawId: string, idType: IdType = "AADHAAR",
 
 const QR_PREFIX = "APAARQR1";
 
-type IssuerKeys = { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject };
+export interface IssuerKey {
+  kid: string;
+  publicKeyPem: string;
+  status: "current" | "retired";
+}
+
+type IssuerKeys = { kid: string; publicKey: crypto.KeyObject; privateKey: crypto.KeyObject };
 const store = globalThis as typeof globalThis & { __apaarIssuerKeys?: IssuerKeys };
+
+const spkiPem = (key: crypto.KeyObject) => key.export({ type: "spki", format: "pem" }).toString();
+const kidOf = (key: crypto.KeyObject) => crypto.createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex").slice(0, 12);
 
 function issuerKeys(): IssuerKeys {
   if (store.__apaarIssuerKeys) return store.__apaarIssuerKeys;
   const pem = process.env.ISSUER_PRIVATE_KEY_PEM;
+  let privateKey: crypto.KeyObject;
   if (pem) {
     // A configured key keeps issued QRs valid across restarts and across server instances.
-    const privateKey = crypto.createPrivateKey(pem.split("\\n").join("\n"));
-    store.__apaarIssuerKeys = { privateKey, publicKey: crypto.createPublicKey(privateKey) };
+    privateKey = crypto.createPrivateKey(pem.split("\\n").join("\n"));
+  } else if (isDevLike()) {
+    // Development only: an ephemeral key. QRs issued before a restart stop verifying, which fails safe.
+    privateKey = crypto.generateKeyPairSync("ed25519").privateKey;
   } else {
-    // No key configured: an ephemeral one. QRs issued before a restart stop verifying, which fails safe.
-    store.__apaarIssuerKeys = crypto.generateKeyPairSync("ed25519");
+    throw new ConfigError(["ISSUER_PRIVATE_KEY_PEM"]);
   }
+  const publicKey = crypto.createPublicKey(privateKey);
+  store.__apaarIssuerKeys = { kid: process.env.ISSUER_KID || kidOf(publicKey), publicKey, privateKey };
   return store.__apaarIssuerKeys;
 }
 
-/** The public key a verifier caches so it can check signatures with no network access. */
-export function getIssuerPublicKeyPem(): string {
-  return issuerKeys().publicKey.export({ type: "spki", format: "pem" }).toString();
+/**
+ * Every key a verifier should trust: the current one, plus retired public keys from
+ * ISSUER_RETIRED_PUBLIC_KEYS (a JSON array of { kid, pem }) so QRs signed before a rotation still verify.
+ */
+export function getIssuerKeySet(): IssuerKey[] {
+  const current = issuerKeys();
+  const keys: IssuerKey[] = [{ kid: current.kid, publicKeyPem: spkiPem(current.publicKey), status: "current" }];
+  try {
+    const retired = JSON.parse(process.env.ISSUER_RETIRED_PUBLIC_KEYS ?? "[]") as { kid: string; pem: string }[];
+    for (const r of retired) if (r.kid && r.pem) keys.push({ kid: r.kid, publicKeyPem: r.pem, status: "retired" });
+  } catch {
+    /* a malformed list is ignored; the current key still works */
+  }
+  return keys;
 }
 
-/** Returns `APAARQR1.<payload>.<signature>` with both parts base64url. */
+/** The current signing key id. */
+export const getIssuerKid = () => issuerKeys().kid;
+
+/** The public key a verifier caches so it can check signatures with no network access. */
+export function getIssuerPublicKeyPem(): string {
+  return spkiPem(issuerKeys().publicKey);
+}
+
+/** Returns `APAARQR1.<payload>.<signature>` with both parts base64url. The payload carries the signing key id. */
 export function signSmartQr(payload: object): string {
-  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const keys = issuerKeys();
+  const body = Buffer.from(JSON.stringify({ ...payload, kid: keys.kid })).toString("base64url");
   const signed = `${QR_PREFIX}.${body}`;
-  const signature = crypto.sign(null, Buffer.from(signed), issuerKeys().privateKey).toString("base64url");
+  const signature = crypto.sign(null, Buffer.from(signed), keys.privateKey).toString("base64url");
   return `${signed}.${signature}`;
 }
 
 export interface QrVerification<T> {
   signatureValid: boolean;
   payload: T | null;
+  kid?: string;
   error?: string;
 }
 
-/** Checks the signature only; it never touches a registry, so it works fully offline. */
-export function verifySmartQr<T = Record<string, unknown>>(qr: string, publicKeyPem?: string): QrVerification<T> {
+/**
+ * Checks the signature only. It never touches a registry, so it works fully offline.
+ * The key is chosen by the `kid` inside the payload from the supplied key set (default: this server's set).
+ * The payload is read before the signature is checked only to pick the key; nothing in it is trusted until the check passes.
+ */
+export function verifySmartQr<T = Record<string, unknown>>(qr: string, keySet: Pick<IssuerKey, "kid" | "publicKeyPem">[] = getIssuerKeySet()): QrVerification<T> {
   const parts = qr.trim().split(".");
   if (parts.length !== 3 || parts[0] !== QR_PREFIX) {
     return { signatureValid: false, payload: null, error: "Not an APAAR Smart QR payload." };
   }
   try {
-    const key = publicKeyPem ? crypto.createPublicKey(publicKeyPem) : issuerKeys().publicKey;
-    const valid = crypto.verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), key, Buffer.from(parts[2], "base64url"));
-    if (!valid) return { signatureValid: false, payload: null, error: "Signature does not match. The QR was altered or was not issued by APAAR." };
-    return { signatureValid: true, payload: JSON.parse(Buffer.from(parts[1], "base64url").toString()) as T };
+    const claimed = JSON.parse(Buffer.from(parts[1], "base64url").toString()) as { kid?: string };
+    const candidates = claimed.kid ? keySet.filter((k) => k.kid === claimed.kid) : keySet;
+    if (candidates.length === 0) {
+      return { signatureValid: false, payload: null, kid: claimed.kid, error: `Unknown signing key '${claimed.kid}'. The key may have been rotated out, or this QR is not from APAAR.` };
+    }
+    const signed = Buffer.from(`${parts[0]}.${parts[1]}`);
+    const signature = Buffer.from(parts[2], "base64url");
+    const key = candidates.find((k) => crypto.verify(null, signed, crypto.createPublicKey(k.publicKeyPem), signature));
+    if (!key) return { signatureValid: false, payload: null, kid: claimed.kid, error: "Signature does not match. The QR was altered or was not issued by APAAR." };
+    return { signatureValid: true, payload: claimed as T, kid: key.kid };
   } catch {
     return { signatureValid: false, payload: null, error: "Malformed QR payload." };
+  }
+}
+
+/** Signs arbitrary text with the issuer key, for example the head of the audit chain. */
+export function signText(text: string): { signature: string; kid: string } {
+  const keys = issuerKeys();
+  return { signature: crypto.sign(null, Buffer.from(text), keys.privateKey).toString("base64url"), kid: keys.kid };
+}
+
+export function verifyText(text: string, signature: string, kid: string, keySet: Pick<IssuerKey, "kid" | "publicKeyPem">[] = getIssuerKeySet()): boolean {
+  const key = keySet.find((k) => k.kid === kid);
+  if (!key) return false;
+  try {
+    return crypto.verify(null, Buffer.from(text), crypto.createPublicKey(key.publicKeyPem), Buffer.from(signature, "base64url"));
+  } catch {
+    return false;
   }
 }
 

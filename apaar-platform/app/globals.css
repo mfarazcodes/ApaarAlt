@@ -7,6 +7,7 @@
   --accent: #10b981;
   --accent-strong: #059669;
   --accent-ink: #047857; /* button fill that keeps white text AA-readable */
+  --accent-soft: #10b981; /* accent that stays AA-readable as small text on the dark surfaces */
   --frame: #2d4a3e;
   --deep: #14201b;
   --deep-2: #1b2b25;
@@ -17,6 +18,7 @@
   --accent: #3b82f6;
   --accent-strong: #2563eb;
   --accent-ink: #1d4ed8;
+  --accent-soft: #60a5fa; /* accent that stays AA-readable as small text on the dark surfaces */
   --frame: #26405f;
   --deep: #101a2a;
   --deep-2: #17243a;
@@ -27,6 +29,7 @@
   --accent: #f59e0b;
   --accent-strong: #d97706;
   --accent-ink: #b45309;
+  --accent-soft: #f59e0b; /* accent that stays AA-readable as small text on the dark surfaces */
   --frame: #5b4620;
   --deep: #1c1710;
   --deep-2: #2a2217;
@@ -37,6 +40,7 @@
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
   --color-frame: var(--frame);
   --color-deep: var(--deep);
   --color-deep-2: var(--deep-2);
@@ -55,6 +59,12 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.4s ease;
+}
+
+/* Keyboard focus is always visible. Programmatic focus targets (dialog panel, #main-content) are excluded. */
+:focus-visible:not([tabindex="-1"]) {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
 }
 
 /* ── Circuit-board data pulses ──────────────────────────────────────────

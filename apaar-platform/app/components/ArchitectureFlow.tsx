@@ -14,7 +14,7 @@ const TABS = [
       "Upload CSV or OCR a legacy sheet",
       "AI schema mapper converts Legacy → NAD",
       "Fuzzy match assistant resolves name drift",
-      "Offline batch sync through the BullMQ queue",
+      "Offline batch sync with automatic retry",
     ],
   },
   {
@@ -48,7 +48,7 @@ const TABS = [
     summary: "Verify a degree in seconds, on or off the network, without seeing the marksheet.",
     steps: [
       "Scan the Smart Credential QR",
-      "Offline Ed25519 signature check",
+      "Ed25519 signature check, even with no network",
       "Consent-gated minimal disclosure",
       "Authentic, revoked or superseded result",
     ],
@@ -77,7 +77,7 @@ export default function ArchitectureFlow() {
             Architecture flow
           </span>
           <h2 className="mx-auto mt-6 max-w-2xl text-[clamp(2rem,4.2vw,3.2rem)] leading-[1.04] tracking-[-0.04em] text-white">
-            One pipeline, <span className="text-white/45">four doorways</span>
+            One pipeline, <span className="text-white/55">four doorways</span>
           </h2>
         </div>
 
@@ -136,7 +136,7 @@ export default function ArchitectureFlow() {
             {tab.steps.map((step, i) => (
               <li key={step} className="relative">
                 <div className="h-full rounded-xl border border-white/10 bg-deep/60 p-4">
-                  <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-xs font-bold text-accent">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-accent/15 text-xs font-bold text-accent-soft">
                     {i + 1}
                   </span>
                   <p className="mt-3 text-sm leading-snug text-white/85">{step}</p>
@@ -146,7 +146,7 @@ export default function ArchitectureFlow() {
                     width={16}
                     height={16}
                     aria-hidden="true"
-                    className="absolute -right-[14px] top-1/2 z-10 hidden h-4 w-4 shrink-0 -translate-y-1/2 text-accent md:block"
+                    className="absolute -right-[14px] top-1/2 z-10 hidden h-4 w-4 shrink-0 -translate-y-1/2 text-accent-soft md:block"
                   />
                 )}
               </li>

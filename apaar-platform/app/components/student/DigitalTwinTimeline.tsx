@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 import { Award, Briefcase, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
-import { PROGRAM_TOTAL_CREDITS, STUDENT_PROFILE, TWIN, semesterCreditsEarned, twinTotals } from "@/lib/studentData";
+import { PROGRAM_TOTAL_CREDITS, profileFor, semesterCreditsEarned, semesterSgpa, twinFor, twinTotals } from "@/lib/studentData";
+import { useT } from "../portal/I18n";
 import { Card, Eyebrow, ICON, Pill, ProgressBar, SectionTitle } from "../portal/ui";
 
 const GRADE_TONE = (g: string) => (g === "F" ? "red" : g === "O" || g === "A+" ? "accent" : "neutral");
 
-export default function DigitalTwinTimeline() {
-  const totals = twinTotals();
+export default function DigitalTwinTimeline({ studentId }: { studentId: string }) {
+  const { t } = useT();
+  const TWIN = twinFor(studentId) ?? [];
+  const profile = profileFor(studentId);
+  const totals = twinTotals(TWIN);
   const [selected, setSelected] = useState(totals.completedThrough);
   const sem = TWIN.find((s) => s.semester === selected) ?? TWIN[0];
   const openBacklogs = TWIN.flatMap((s) => s.backlogs).filter((b) => !b.clearedInSemester).length;
@@ -16,21 +20,21 @@ export default function DigitalTwinTimeline() {
   return (
     <Card>
       <SectionTitle
-        eyebrow="Academic Digital Twin"
-        title="Semester-by-semester timeline"
-        hint={`${STUDENT_PROFILE.program}. Pick a semester to see subjects, credits, internships, certificates and backlogs.`}
+        eyebrow={t("twin.eyebrow")}
+        title={t("twin.title")}
+        hint={t("twin.hint", { program: profile?.program ?? t("twin.yourProgramme") })}
       />
 
       <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="ABC credits" value={`${totals.creditsEarned}/${PROGRAM_TOTAL_CREDITS}`}>
-          <ProgressBar value={totals.creditsEarned} max={PROGRAM_TOTAL_CREDITS} label="Credits earned" />
+        <Stat label={t("twin.stat.credits")} value={`${totals.creditsEarned}/${PROGRAM_TOTAL_CREDITS}`}>
+          <ProgressBar value={totals.creditsEarned} max={PROGRAM_TOTAL_CREDITS} label={t("twin.creditsEarned")} />
         </Stat>
-        <Stat label="CGPA" value={totals.cgpa.toFixed(2)} />
-        <Stat label="SWAYAM credits" value={String(totals.swayamCredits)} />
-        <Stat label="Open backlogs" value={String(openBacklogs)} tone={openBacklogs ? "red" : "accent"} />
+        <Stat label={t("twin.stat.cgpa")} value={totals.cgpa.toFixed(2)} />
+        <Stat label={t("twin.stat.swayam")} value={String(totals.swayamCredits)} />
+        <Stat label={t("twin.stat.backlogs")} value={String(openBacklogs)} tone={openBacklogs ? "red" : "accent"} />
       </div>
 
-      <ol className="mt-6 flex items-center overflow-x-auto pb-2" aria-label="Semesters">
+      <ol className="mt-6 flex items-center overflow-x-auto pb-2" aria-label={t("twin.semesters")}>
         {TWIN.map((s, i) => {
           const planned = s.status === "PLANNED";
           const active = s.semester === selected;
@@ -40,7 +44,7 @@ export default function DigitalTwinTimeline() {
                 type="button"
                 onClick={() => setSelected(s.semester)}
                 aria-current={active ? "step" : undefined}
-                aria-label={`Semester ${s.semester}, ${planned ? "planned" : "completed"}`}
+                aria-label={t("twin.semAria", { n: s.semester, state: t(planned ? "twin.planned" : "twin.completed") })}
                 className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-bold transition ${
                   active
                     ? "bg-white text-deep ring-4 ring-accent/40"
@@ -63,28 +67,28 @@ export default function DigitalTwinTimeline() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 text-lg font-semibold">
             {sem.status === "COMPLETED" ? (
-              <CheckCircle2 width={16} height={16} className={`${ICON} text-accent`} />
+              <CheckCircle2 width={16} height={16} className={`${ICON} text-accent-soft`} />
             ) : (
               <CircleDashed width={16} height={16} className={`${ICON} text-white/60`} />
             )}
-            Semester {sem.semester}
-            <span className="text-sm font-normal text-white/60">Year {sem.year}</span>
+            {t("twin.semester", { n: sem.semester })}
+            <span className="text-sm font-normal text-white/60">{t("twin.year", { n: sem.year })}</span>
           </h3>
           <div className="flex items-center gap-2">
-            {sem.sgpa !== undefined && <Pill tone="accent">SGPA {sem.sgpa.toFixed(1)}</Pill>}
-            <Pill>{semesterCreditsEarned(sem)} credits {sem.status === "PLANNED" ? "planned" : "earned"}</Pill>
+            {semesterSgpa(sem) !== null && <Pill tone="accent">{t("twin.sgpa", { value: semesterSgpa(sem)?.toFixed(2) ?? "" })}</Pill>}
+            <Pill>{t(sem.status === "PLANNED" ? "twin.creditsPlannedPill" : "twin.creditsEarnedPill", { n: semesterCreditsEarned(sem) })}</Pill>
           </div>
         </div>
 
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[480px] text-left text-sm">
-            <caption className="sr-only">Subjects in semester {sem.semester}</caption>
+            <caption className="sr-only">{t("twin.subjectsCaption", { n: sem.semester })}</caption>
             <thead className="text-xs uppercase tracking-wider text-white/55">
               <tr>
-                <th scope="col" className="pb-2 pr-3 font-semibold">Code</th>
-                <th scope="col" className="pb-2 pr-3 font-semibold">Subject</th>
-                <th scope="col" className="pb-2 pr-3 text-right font-semibold">Credits</th>
-                <th scope="col" className="pb-2 text-right font-semibold">Grade</th>
+                <th scope="col" className="pb-2 pr-3 font-semibold">{t("twin.col.code")}</th>
+                <th scope="col" className="pb-2 pr-3 font-semibold">{t("twin.col.subject")}</th>
+                <th scope="col" className="pb-2 pr-3 text-right font-semibold">{t("twin.col.credits")}</th>
+                <th scope="col" className="pb-2 text-right font-semibold">{t("twin.col.grade")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.07]">
@@ -94,11 +98,11 @@ export default function DigitalTwinTimeline() {
                   <td className="py-2.5 pr-3">
                     {c.title}
                     {c.swayam && <Pill tone="blue" className="ml-2">SWAYAM</Pill>}
-                    {c.backlogClearedFrom && <Pill tone="amber" className="ml-2">Backlog from Sem {c.backlogClearedFrom}</Pill>}
+                    {c.backlogClearedFrom && <Pill tone="amber" className="ml-2">{t("twin.backlogFrom", { n: c.backlogClearedFrom })}</Pill>}
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular-nums">{c.credits}</td>
                   <td className="py-2.5 text-right">
-                    {sem.status === "COMPLETED" ? <Pill tone={GRADE_TONE(c.grade)}>{c.grade}</Pill> : <span className="text-white/45">-</span>}
+                    {sem.status === "COMPLETED" ? <Pill tone={GRADE_TONE(c.grade)}>{c.grade}</Pill> : <span className="text-white/55">-</span>}
                   </td>
                 </tr>
               ))}
@@ -109,22 +113,22 @@ export default function DigitalTwinTimeline() {
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <Extras
             icon={<Briefcase width={16} height={16} className={ICON} />}
-            title="Internships"
-            empty="None this semester"
-            items={sem.internships.map((i) => `${i.org} · ${i.weeks} weeks · ${i.mode === "REMOTE" ? "Remote" : "On-site"}`)}
+            title={t("twin.internships")}
+            empty={t("twin.noneThis")}
+            items={sem.internships.map((i) => t("twin.intern.item", { org: i.org, weeks: i.weeks, mode: t(i.mode === "REMOTE" ? "twin.remote" : "twin.onsite") }))}
           />
           <Extras
             icon={<Award width={16} height={16} className={ICON} />}
-            title="Certificates"
-            empty="None this semester"
+            title={t("twin.certificates")}
+            empty={t("twin.noneThis")}
             items={sem.certificates.map((c) => `${c.title} (${c.issuer})`)}
           />
           <Extras
             icon={<TriangleAlert width={16} height={16} className={ICON} />}
-            title="Backlogs"
-            empty="No backlogs"
+            title={t("twin.backlogs")}
+            empty={t("twin.noBacklogs")}
             tone={sem.backlogs.length ? "amber" : undefined}
-            items={sem.backlogs.map((b) => `${b.code} ${b.title}: ${b.clearedInSemester ? `cleared in Sem ${b.clearedInSemester}` : "open"}`)}
+            items={sem.backlogs.map((b) => `${b.code} ${b.title}: ${b.clearedInSemester ? t("twin.backlog.cleared", { n: b.clearedInSemester }) : t("twin.backlog.open")}`)}
           />
         </div>
       </div>
@@ -168,7 +172,7 @@ function Extras({
           ))}
         </ul>
       ) : (
-        <p className="mt-2 text-sm text-white/45">{empty}</p>
+        <p className="mt-2 text-sm text-white/55">{empty}</p>
       )}
     </div>
   );

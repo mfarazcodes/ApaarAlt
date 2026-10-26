@@ -84,7 +84,7 @@ export default function SatinFeaturePanel() {
             Inside the platform
           </span>
           <h2 className="mx-auto mt-6 max-w-3xl text-[clamp(2rem,4.6vw,3.6rem)] leading-[1.02] tracking-[-0.04em] text-white">
-            Four modules, <span className="text-white/45">one verified</span> bridge
+            Four modules, <span className="text-white/55">one verified</span> bridge
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-base text-white/60">
             Colleges, regulators, students and employers each get a surface built for their job,
@@ -99,10 +99,10 @@ export default function SatinFeaturePanel() {
               className={`group rounded-2xl border border-white/[0.09] bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-6 shadow-2xl backdrop-blur-xl transition hover:border-accent/40 sm:p-7 ${span}`}
             >
               <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/15 text-accent">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/15 text-accent-soft">
                   <Icon width={16} height={16} className="h-4 w-4 shrink-0" />
                 </span>
-                <span className="font-mono text-xs text-white/35">{n}</span>
+                <span className="font-mono text-xs text-white/50">{n}</span>
               </div>
               <h3 className="mt-6 text-xl font-semibold leading-snug tracking-tight text-white">
                 {title}
@@ -114,7 +114,7 @@ export default function SatinFeaturePanel() {
                     <Check
                       width={16}
                       height={16}
-                      className="mt-0.5 h-4 w-4 shrink-0 text-accent"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-accent-soft"
                     />
                     {p}
                   </li>

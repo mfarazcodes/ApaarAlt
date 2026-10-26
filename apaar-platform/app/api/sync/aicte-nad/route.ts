@@ -1,223 +1,252 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { appendAudit, type AuditInput } from "@/lib/audit";
+import { CsvLimitError, MAX_CSV_BYTES, MAX_CSV_ROWS, parseCsv, type RawRow } from "@/lib/csv";
+import { actorOf, guard } from "@/lib/guard";
+import { HttpError, jsonError, parseWith, readJson } from "@/lib/http";
 import {
   SAMPLE_COLLEGES,
   SAMPLE_DIPLOMAS,
   SAMPLE_MESSY_ERP_CSV,
+  SAMPLE_PROBLEM_CSV,
   SAMPLE_REVALUATION_CSV,
   SAMPLE_TARGET_SYLLABUS,
-  calculateAICTECompliance,
   calculateLateralEntryOverlap,
   computeComplianceScore,
-  csvHeaders,
   detectSchemaMapping,
   diffCourses,
   forecastCredits,
   normalizeCourseRow,
-  parseMessyCSV,
   pickField,
   processStudentSemesterRecord,
   simulateNepExit,
+  stripGovernmentIds,
   validateSwayamCap,
-  type NADStudentRecord,
-  type RawRow,
+  type CourseDiff,
   type SyllabusTopic,
 } from "@/lib/nadSyncEngine";
-import { tokenizeDemographicId } from "@/lib/tokenization";
+import { complianceOf, groupByRoll, programmeFor, readState, seedState, tokenFor, type SyncState } from "@/lib/syncState";
+import { NS } from "@/lib/store";
 
-/** Demo state kept on globalThis so dev hot-reloads do not wipe it. */
-interface SyncState {
-  counts: { approvedIntake: number; totalErpEnrolled: number; verifiedEnrolment: number; abcSeededCount: number };
-  students: NADStudentRecord[];
-}
-const g = globalThis as typeof globalThis & { __apaarSyncState?: SyncState };
+/* ── Request schemas ─────────────────────────────────────────────────── */
 
-const PROGRAMS: Record<string, string> = {
-  CS: "B.Tech Computer Science & Engineering",
-  ME: "B.Tech Mechanical & Mechatronics",
-  EC: "B.Tech Electronics & Communication",
-  EE: "B.Tech Electrical Engineering",
+const credits = z.number().min(0).max(1000);
+
+const sheetFields = {
+  csvText: z.string().max(MAX_CSV_BYTES).optional(),
+  rows: z.array(z.record(z.string(), z.unknown())).max(MAX_CSV_ROWS).optional(),
+  semester: z.number().int().min(1).max(12).default(5),
+  academicYear: z.string().regex(/^\d{4}-\d{2}$/, "Academic year looks like 2024-25").optional(),
+  program: z.string().min(1).max(80).optional(),
+  backlogRule: z.enum(["REPLACE_FAILED_ATTEMPT", "KEEP_ALL_ATTEMPTS"]).optional(),
 };
 
-function programFor(roll: string): string {
-  const code = roll.split("-")[1];
-  return PROGRAMS[code] ?? "B.Tech";
-}
+const Body = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("VALIDATE_SWAYAM"), totalCredits: credits.default(160), swayamCredits: credits.default(0) }),
+  z.object({ action: z.literal("NEP_EXIT"), earnedCredits: credits.default(0), vocationalCredits: credits.default(0) }),
+  z.object({
+    action: z.literal("FORECAST"),
+    earnedCredits: credits.default(0),
+    totalCredits: credits.default(160),
+    scheduledRemaining: z.array(credits).max(12).default([]),
+    swayamUsed: credits.default(0),
+  }),
+  z.object({
+    action: z.literal("LATERAL_ENTRY"),
+    diploma: z.string().max(20).optional(),
+    topics: z.array(z.object({ topic: z.string().min(1).max(120), credits: z.number().min(0).max(20) })).max(60).optional(),
+  }),
+  z.object({ action: z.literal("MAP_SCHEMA"), ...sheetFields }),
+  z.object({ action: z.literal("PREVIEW"), ...sheetFields }),
+  z.object({ action: z.literal("SYNC"), acknowledgeIssues: z.boolean().default(false), ...sheetFields }),
+]);
 
-function groupByRoll(rows: RawRow[]): Record<string, RawRow[]> {
-  const grouped: Record<string, RawRow[]> = {};
-  for (const r of rows) {
-    const roll = pickField(r, "rollNumber") ?? "STUDENT-TEMP";
-    (grouped[roll] ??= []).push(r);
+/** Calculators any signed-in role may use. Everything that reads or writes a college's data is registrar-only. */
+const CALCULATORS = new Set(["VALIDATE_SWAYAM", "NEP_EXIT", "FORECAST", "LATERAL_ENTRY"]);
+
+export async function GET(req: Request) {
+  try {
+    const { session, store } = await guard(req, { roles: ["REGISTRAR", "AICTE"], scope: "sync" });
+    const s = await readState(store);
+    const registrar = session!.role === "REGISTRAR";
+    return NextResponse.json({
+      success: true,
+      engine: "Unified AICTE-NAD Sync Engine v4.1",
+      compliance: complianceOf(s),
+      leaderboard: SAMPLE_COLLEGES.map((c) => ({ ...c, ...computeComplianceScore(c) })).sort((a, b) => b.score - a.score),
+      // Student-level data and the sample sheets are for the registrar only.
+      ...(registrar
+        ? {
+            sampleMessyCsv: SAMPLE_MESSY_ERP_CSV,
+            sampleRevaluationCsv: SAMPLE_REVALUATION_CSV,
+            sampleProblemCsv: SAMPLE_PROBLEM_CSV,
+            syncedStudents: s.students,
+            diplomaSamples: Object.entries(SAMPLE_DIPLOMAS).map(([key, v]) => ({ key, label: v.label })),
+          }
+        : {}),
+    });
+  } catch (err) {
+    return jsonError(err, "Failed to read sync state");
   }
-  return grouped;
-}
-
-function state(): SyncState {
-  if (g.__apaarSyncState) return g.__apaarSyncState;
-  const seeded: NADStudentRecord[] = [];
-  const priors: Record<string, [number, number]> = { "2023-CS-041": [82, 8.8], "2023-ME-112": [78, 8.4] };
-  for (const [roll, rows] of Object.entries(groupByRoll(parseMessyCSV(SAMPLE_MESSY_ERP_CSV)))) {
-    const [credits, cgpa] = priors[roll] ?? [75, 8.2];
-    seeded.push(
-      processStudentSemesterRecord(
-        roll,
-        (pickField(rows[0], "studentName") ?? "Student").replace(/["']/g, ""),
-        pickField(rows[0], "abcId") ?? "ABC-PENDING",
-        tokenizeDemographicId(roll, "STUDENT_ROLL", "NIST-DEMO").vaultToken,
-        programFor(roll),
-        5,
-        "2024-25",
-        credits,
-        cgpa,
-        rows
-      )
-    );
-  }
-  g.__apaarSyncState = {
-    counts: { approvedIntake: 1200, totalErpEnrolled: 1180, verifiedEnrolment: 1148, abcSeededCount: 1120 },
-    students: seeded,
-  };
-  return g.__apaarSyncState;
-}
-
-const complianceOf = (s: SyncState) =>
-  calculateAICTECompliance(s.counts.approvedIntake, s.counts.totalErpEnrolled, s.counts.verifiedEnrolment, s.counts.abcSeededCount);
-
-const fail = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
-
-export async function GET() {
-  const s = state();
-  return NextResponse.json({
-    success: true,
-    engine: "Unified AICTE-NAD Sync Engine v3.2",
-    compliance: complianceOf(s),
-    sampleMessyCsv: SAMPLE_MESSY_ERP_CSV,
-    sampleRevaluationCsv: SAMPLE_REVALUATION_CSV,
-    syncedStudents: s.students,
-    leaderboard: SAMPLE_COLLEGES.map((c) => ({ ...c, ...computeComplianceScore(c) })).sort((a, b) => b.score - a.score),
-    diplomaSamples: Object.entries(SAMPLE_DIPLOMAS).map(([key, v]) => ({ key, label: v.label })),
-  });
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const action: string = body.action ?? "SYNC";
+    const { session, store } = await guard(req, { roles: ["STUDENT", "REGISTRAR", "AICTE"], scope: "sync" });
+    const raw = (await readJson(req, MAX_CSV_BYTES + 4096)) as Record<string, unknown>;
+    const body = parseWith(Body, { action: "SYNC", ...raw });
 
-    if (action === "VALIDATE_SWAYAM") {
-      return NextResponse.json({ success: true, result: validateSwayamCap(Number(body.totalCredits) || 160, Number(body.swayamCredits) || 0) });
+    if (!CALCULATORS.has(body.action) && session!.role !== "REGISTRAR") {
+      throw new HttpError(403, "Only a registrar can upload or sync marksheets.");
     }
 
-    if (action === "NEP_EXIT") {
-      return NextResponse.json({ success: true, result: simulateNepExit(Number(body.earnedCredits) || 0, Number(body.vocationalCredits) || 0) });
-    }
-
-    if (action === "FORECAST") {
-      const scheduled = Array.isArray(body.scheduledRemaining) ? body.scheduledRemaining.map(Number) : [];
-      return NextResponse.json({
-        success: true,
-        result: forecastCredits({
-          earnedCredits: Number(body.earnedCredits) || 0,
-          totalCredits: Number(body.totalCredits) || 160,
-          scheduledRemaining: scheduled,
-          swayamUsed: Number(body.swayamUsed) || 0,
-        }),
-      });
-    }
-
-    if (action === "LATERAL_ENTRY") {
-      const prior: SyllabusTopic[] | undefined = Array.isArray(body.topics) ? body.topics : SAMPLE_DIPLOMAS[body.diploma as string]?.syllabus;
-      if (!prior) return fail("Provide 'topics' or a known 'diploma' key.");
-      return NextResponse.json({ success: true, result: calculateLateralEntryOverlap(prior, SAMPLE_TARGET_SYLLABUS) });
+    switch (body.action) {
+      case "VALIDATE_SWAYAM":
+        return NextResponse.json({ success: true, result: validateSwayamCap(body.totalCredits, body.swayamCredits) });
+      case "NEP_EXIT":
+        return NextResponse.json({ success: true, result: simulateNepExit(body.earnedCredits, body.vocationalCredits) });
+      case "FORECAST":
+        return NextResponse.json({
+          success: true,
+          result: forecastCredits({ earnedCredits: body.earnedCredits, totalCredits: body.totalCredits, scheduledRemaining: body.scheduledRemaining, swayamUsed: body.swayamUsed }),
+        });
+      case "LATERAL_ENTRY": {
+        const prior: SyllabusTopic[] | undefined = body.topics ?? (body.diploma ? SAMPLE_DIPLOMAS[body.diploma]?.syllabus : undefined);
+        if (!prior) throw new HttpError(400, "Provide 'topics' or a known 'diploma' key.");
+        return NextResponse.json({ success: true, result: calculateLateralEntryOverlap(prior, SAMPLE_TARGET_SYLLABUS) });
+      }
     }
 
     // Everything below works on an uploaded marksheet.
-    let rawRows: RawRow[] = [];
-    let headers: string[] = [];
-    if (typeof body.csvText === "string") {
-      rawRows = parseMessyCSV(body.csvText);
-      headers = csvHeaders(body.csvText);
-    } else if (Array.isArray(body.rows)) {
-      rawRows = body.rows;
-      headers = Object.keys(rawRows[0] ?? {});
-    } else {
-      return fail("Please provide either 'csvText' or 'rows' array.");
+    if (body.csvText === undefined && body.rows === undefined) throw new HttpError(400, "Provide either 'csvText' or 'rows'.");
+    let parsed: { headers: string[]; rows: RawRow[]; warnings: string[] };
+    try {
+      parsed = body.csvText !== undefined ? parseCsv(body.csvText) : { headers: Object.keys(body.rows?.[0] ?? {}), rows: body.rows ?? [], warnings: [] };
+    } catch (e) {
+      throw new HttpError(e instanceof CsvLimitError ? 413 : 400, e instanceof Error ? e.message : "Could not read the CSV.");
     }
-    if (rawRows.length === 0) return fail("No valid rows found in provided marksheet payload.");
+    if (parsed.rows.length === 0) throw new HttpError(400, "No valid rows found in the marksheet.");
 
-    const mapping = detectSchemaMapping(headers);
+    const mapping = detectSchemaMapping(parsed.headers);
+    // Government-ID columns are dropped here, before anything is stored or echoed.
+    const rows = parsed.rows.map(stripGovernmentIds);
 
-    if (action === "MAP_SCHEMA") {
+    if (body.action === "MAP_SCHEMA") {
+      return NextResponse.json({ success: true, mapping, parserWarnings: parsed.warnings, preview: rows.slice(0, 5).map((r) => normalizeCourseRow(r)), rowCount: rows.length });
+    }
+    if (mapping.missingRequired.length > 0) throw new HttpError(400, `Cannot map this sheet to NAD. Missing: ${mapping.missingRequired.join(", ")}.`);
+
+    const dryRun = body.action === "PREVIEW";
+    const actor = actorOf(session!);
+    const grouped = Object.entries(groupByRoll(rows));
+
+    // One pass builds the records. For SYNC it runs inside the update, so it reads and writes the same state atomically.
+    const build = (s: SyncState) =>
+      grouped.map(([roll, studentRows]) => {
+        const first = studentRows[0];
+        const existing = s.students.find((x) => x.studentRoll === roll);
+        const record = processStudentSemesterRecord({
+          studentRoll: roll,
+          studentName: (pickField(first, "studentName") ?? "Unnamed student").replace(/["']/g, ""),
+          abcAccountId: pickField(first, "abcId") ?? "ABC-PENDING",
+          apaarToken: existing?.apaarToken ?? tokenFor(roll),
+          program: body.program ?? existing?.program ?? programmeFor(roll).program,
+          semester: body.semester,
+          academicYear: body.academicYear ?? s.meta.academicYear,
+          rows: studentRows,
+          // A student new to NAD has no prior record. Nothing is invented.
+          prior: existing ? existing.priorSummary : null,
+          existingHistory: existing?.history,
+          backlogRule: body.backlogRule ?? existing?.backlogRule,
+        });
+        const sameSemester = existing?.semester === body.semester;
+        return { record, diff: diffCourses(sameSemester && existing ? existing.courses : [], record.courses), isNew: !existing };
+      });
+
+    type Built = ReturnType<typeof build>;
+    const blockingOf = (results: Built) =>
+      results.flatMap((r) => r.record.rowIssues.filter((i) => i.excluded).map((i) => ({ studentRoll: r.record.studentRoll, ...i })));
+
+    if (dryRun) {
+      const s = await readState(store);
+      const results = build(s);
       return NextResponse.json({
         success: true,
+        dryRun: true,
+        message: `Previewed ${rows.length} ERP rows for ${results.length} students. Nothing was written to NAD.`,
         mapping,
-        preview: rawRows.slice(0, 5).map((r) => normalizeCourseRow(r)),
-        rowCount: rawRows.length,
+        parserWarnings: parsed.warnings,
+        blockingIssues: blockingOf(results),
+        results: results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
+        updatedCompliance: complianceOf(s),
       });
     }
 
-    if (mapping.missingRequired.length > 0) {
-      return fail(`Cannot map this sheet to NAD. Missing: ${mapping.missingRequired.join(", ")}.`);
-    }
+    const acknowledged = body.action === "SYNC" && body.acknowledgeIssues;
+    await readState(store); // make sure the seed exists before the atomic update
 
-    // action SYNC (or "PREVIEW" to see the diff without writing)
-    const dryRun = action === "PREVIEW";
-    const s = state();
-    const semester = Number(body.semester) || 5;
-    const results: { record: NADStudentRecord; diff: ReturnType<typeof diffCourses>; isNew: boolean }[] = [];
+    const outcome = await store.update<SyncState, { results: Built; blocking: ReturnType<typeof blockingOf>; state: SyncState; written: boolean }>(NS.sync, "state", (cur) => {
+      const s = cur ?? seedState();
+      const results = build(s);
+      const blocking = blockingOf(results);
+      // Refuse before changing anything. The registrar must confirm that the excluded rows are intentionally left out.
+      if (blocking.length > 0 && !acknowledged) return { value: undefined, result: { results, blocking, state: s, written: false } };
 
-    for (const [roll, studentRows] of Object.entries(groupByRoll(rawRows))) {
-      const first = studentRows[0];
-      const existing = s.students.find((x) => x.studentRoll === roll);
-      // Re-uploading a semester replaces it; a new semester builds on the stored totals.
-      const sameSemester = existing?.semester === semester;
-      const priorCredits = existing ? (sameSemester ? existing.priorAccumulatedCredits : existing.updatedCumulativeCredits) : 75;
-      const priorCgpa = existing ? (sameSemester ? existing.priorCgpa : existing.cgpa) : 8.2;
-
-      const record = processStudentSemesterRecord(
-        roll,
-        (pickField(first, "studentName") ?? "AICTE Student").replace(/["']/g, ""),
-        pickField(first, "abcId") ?? "ABC-PENDING",
-        existing?.apaarToken ?? tokenizeDemographicId(roll, "STUDENT_ROLL", "NIST-DEMO").vaultToken,
-        existing?.program ?? programFor(roll),
-        semester,
-        "2024-25",
-        priorCredits,
-        priorCgpa,
-        studentRows
-      );
-      results.push({
-        record,
-        diff: diffCourses(sameSemester && existing ? existing.courses : [], record.courses),
-        isNew: !existing,
-      });
-    }
-
-    if (!dryRun) {
       for (const { record, isNew } of results) {
         const idx = s.students.findIndex((x) => x.studentRoll === record.studentRoll);
         if (idx >= 0) s.students[idx] = record;
         else s.students.push(record);
+
         // Only students new to NAD move the headline counts, so re-syncing never inflates them.
         if (isNew) {
-          s.counts.verifiedEnrolment = Math.min(s.counts.approvedIntake, s.counts.verifiedEnrolment + 1);
-          s.counts.abcSeededCount = Math.min(s.counts.approvedIntake, s.counts.abcSeededCount + 1);
+          const name = programmeFor(record.studentRoll).programme;
+          let row = s.programmes.find((p) => p.programme === name);
+          if (!row) {
+            row = { programme: name, approvedIntake: 0, erpEnrolled: 0, verified: 0, abcSeeded: 0 };
+            s.programmes.push(row);
+          }
+          row.erpEnrolled += 1;
+          if (record.syncStatus !== "HELD_FOR_REVIEW") {
+            row.verified += 1;
+            row.abcSeeded += 1;
+          }
+        }
+      }
+      return { value: s, result: { results, blocking, state: s, written: true } };
+    });
+
+    if (!outcome.written) {
+      throw new HttpError(400, `${outcome.blocking.length} row(s) cannot be graded or credited. Fix the sheet, or confirm to sync the rest and leave these out.`, { blockingIssues: outcome.blocking });
+    }
+
+    // Audit: one entry per student for the sync, and one per changed grade so a revaluation is traceable.
+    for (const { record, diff, isNew } of outcome.results) {
+      const changed = diff.filter((d: CourseDiff) => d.change !== "UNCHANGED");
+      const base: Pick<AuditInput, "actorRole" | "actor" | "subject"> = { actorRole: actor.role, actor: actor.label, subject: record.apaarToken };
+      await appendAudit(store, {
+        ...base,
+        type: "NAD_SYNC",
+        action: "NAD_SYNC",
+        detail: `Semester ${record.semester} synced: ${record.courses.length} courses (${changed.length} changed), ${record.rowIssues.filter((r) => r.excluded).length} row(s) left out${isNew ? ", new to NAD" : ""}. SGPA ${record.sgpa ?? "n/a"}.`,
+      });
+      for (const d of diff) {
+        if (d.change === "CHANGED" && d.before && d.after && d.before.letterGrade !== d.after.letterGrade) {
+          await appendAudit(store, { ...base, type: "GRADE_CHANGE", action: "GRADE_CHANGE", detail: `${d.courseCode}: ${d.before.letterGrade} to ${d.after.letterGrade} in semester ${record.semester}.` });
         }
       }
     }
 
     return NextResponse.json({
       success: true,
-      dryRun,
-      message: dryRun
-        ? `Previewed ${rawRows.length} ERP rows for ${results.length} students. Nothing was written to NAD.`
-        : `Mapped ${rawRows.length} ERP rows for ${results.length} students into the NAD credit schema.`,
+      dryRun: false,
+      message: `Mapped ${rows.length} ERP rows for ${outcome.results.length} students into the NAD credit schema.${outcome.blocking.length ? ` ${outcome.blocking.length} row(s) were left out.` : ""}`,
       mapping,
-      results: results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
-      updatedCompliance: complianceOf(s),
-      allStudents: s.students,
+      parserWarnings: parsed.warnings,
+      blockingIssues: outcome.blocking,
+      results: outcome.results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
+      updatedCompliance: complianceOf(outcome.state),
     });
   } catch (err) {
-    return fail(err instanceof Error ? err.message : "Failed to execute AICTE-NAD sync", 500);
+    return jsonError(err, "Failed to execute AICTE-NAD sync");
   }
 }

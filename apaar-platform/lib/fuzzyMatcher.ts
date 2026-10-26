@@ -1,18 +1,24 @@
 /**
- * Pre-Flight Fuzzy Matcher Utility
- * Solves the critical AICTE bottleneck: Demographic divergence between
- * College ERP records and DigiLocker / Aadhaar e-KYC records.
+ * Pre-Flight Fuzzy Matcher
  *
- * Implements:
- * 1. Jaro-Winkler String Distance Metric
- * 2. Indian Initial-Expansion & Name Swapping Logic (e.g. "K. V. Rahul" vs "Rahul K V" vs "Koppula Venkat Rahul")
- * 3. Honorific stripping (Shri, Smt, Kumari, Mr, Ms, Dr, Prof) and Mohd/Md/Mohammed canonicalization
- * 4. Multi-token permutation matching (token sort ratio & token set intersection)
- * 5. Multi-field demographic scoring (Name, DOB, Gender, Guardian)
- * 6. Classification into: EXACT_MATCH (100%), SOFT_MISMATCH_REVIEW (65%–99%), HARD_REJECT (<65%)
+ * Solves the AICTE bottleneck of demographic divergence between College ERP records and
+ * DigiLocker / Aadhaar e-KYC records. It answers two different questions:
+ *
+ * 1. sameIdentityConfidence (0-100): how likely are these two records the same person?
+ *    Jaro-Winkler, Indian initial expansion, honorific stripping, token matching, DOB, gender, guardian.
+ *    Used for review queues and duplicate detection.
+ * 2. apiWillAccept: would the government check accept the ERP record as it is? That check compares
+ *    against the Aadhaar record literally, so only case, spacing and punctuation may differ.
+ *    A record can be clearly the same person and still be rejected by the API.
+ *
+ * Classification:
+ *   EXACT_MATCH          the API will accept it as is
+ *   AUTO_FIXABLE         same person, only the name spelling differs; a one-click correction is suggested
+ *   SOFT_MISMATCH_REVIEW plausible match that a person must confirm (65-94, or relies on initials / a DOB difference)
+ *   HARD_REJECT          below 65
  */
 
-export type MatchClassification = "EXACT_MATCH" | "SOFT_MISMATCH_REVIEW" | "HARD_REJECT";
+export type MatchClassification = "EXACT_MATCH" | "AUTO_FIXABLE" | "SOFT_MISMATCH_REVIEW" | "HARD_REJECT";
 
 export interface StudentDemographicRecord {
   name: string;
@@ -22,16 +28,34 @@ export interface StudentDemographicRecord {
   source: "ERP" | "DIGILOCKER" | "E_KYC";
 }
 
+export interface ApiAcceptance {
+  name: boolean;
+  dob: boolean;
+  /** Null when either side has no gender, so it could not be compared. */
+  gender: boolean | null;
+  all: boolean;
+}
+
+export interface SuggestedFix {
+  field: "name";
+  from: string;
+  to: string;
+  text: string;
+}
+
 export interface MatchScoreBreakdown {
   rawNameJaroWinkler: number; // 0 - 1
-  initialExpansionScore: number; // 0 - 1
-  tokenSetScore: number; // 0 - 1
+  initialExpansionScore: number; // 0 - 1, the name score after initial and token logic
+  tokenSetScore: number; // 0 - 1, share of distinct name tokens that agree
   nameFinalScore: number; // 0 - 100
-  dobScore: number; // 0 - 100
-  genderScore: number; // 0 - 100
-  guardianScore?: number; // 0 - 100
-  overallConfidence: number; // 0 - 100
+  dobScore: number | null; // 0 - 100, null when a side has no DOB
+  genderScore: number | null;
+  guardianScore: number | null;
+  sameIdentityConfidence: number; // 0 - 100
+  overallConfidence: number; // alias of sameIdentityConfidence
+  apiWillAccept: ApiAcceptance;
   classification: MatchClassification;
+  suggestedFixes: SuggestedFix[];
   discrepancies: string[];
   reconciliationNotes: string[];
 }
@@ -53,21 +77,23 @@ const CANONICAL_TOKENS: Record<string, string> = {
   lakshmi: "lakshmi",
 };
 
+const PUNCTUATION = /[.,\-/#!$%^&*;:{}=_`~()]/g;
+
 /**
  * Normalizes an Indian name: strips honorifics and punctuation, canonicalizes known
  * spelling variants, collapses whitespace and lowercases.
  */
 export function normalizeName(name: string): string[] {
   if (!name) return [];
-  const clean = name
-    .toLowerCase()
-    .replace(/[.,\-/#!$%^&*;:{}=_`~()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
+  const clean = name.toLowerCase().replace(PUNCTUATION, " ").replace(/\s+/g, " ").trim();
   const all = clean.split(" ").filter((t) => t.length > 0);
   const tokens = all.filter((t) => !HONORIFICS.has(t));
   return (tokens.length > 0 ? tokens : all).map((t) => CANONICAL_TOKENS[t] ?? t);
+}
+
+/** What the government check sees: only case, spacing and punctuation are ignored. Nothing else. */
+export function literalName(name: string): string {
+  return (name ?? "").toLowerCase().replace(PUNCTUATION, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -77,7 +103,8 @@ export function jaroDistance(s1: string, s2: string): number {
   if (s1 === s2) return 1.0;
   if (!s1.length || !s2.length) return 0.0;
 
-  const matchWindow = Math.floor(Math.max(s1.length, s2.length) / 2) - 1;
+  // The window is never negative, so one- and two-character strings still match.
+  const matchWindow = Math.max(0, Math.floor(Math.max(s1.length, s2.length) / 2) - 1);
   const s1Matches = new Array(s1.length).fill(false);
   const s2Matches = new Array(s2.length).fill(false);
 
@@ -112,12 +139,7 @@ export function jaroDistance(s1: string, s2: string): number {
     k++;
   }
 
-  return (
-    (matches / s1.length +
-      matches / s2.length +
-      (matches - transpositions / 2) / matches) /
-    3.0
-  );
+  return (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3.0;
 }
 
 /**
@@ -150,47 +172,64 @@ function initialMatches(initial: string, word: string): boolean {
   return false;
 }
 
+/** A name that matched only because an initial stood in for a word is never scored above this. */
+export const INITIAL_ONLY_CAP = 0.9;
+
+export interface NameComparison {
+  score: number; // 0 - 1
+  notes: string[];
+  /** True when at least one token matched only because an initial was expanded. */
+  usedInitials: boolean;
+  /** Share of distinct normalized tokens the two names have in common (0 - 1). */
+  tokenSetScore: number;
+}
+
 /**
- * Indian Initial Expansion & Token Set Similarity.
- * Resolves South & North Indian naming nuances:
+ * Indian initial expansion and token set similarity.
+ * Resolves South and North Indian naming nuances:
  * - "K. V. Rahul" vs "Rahul K V" vs "Koppula Venkat Rahul"
  * - "S. Lakshmi" vs "Lakshmi Someshwar"
  * - Transposed family names vs given names
+ *
+ * A match that depends on an initial is capped at INITIAL_ONLY_CAP, because "A Kumar" fits both
+ * "Anil Kumar" and "Amit Kumar". A person has to confirm it against a document.
  */
-export function compareIndianNamesWithInitialExpansion(
-  nameA: string,
-  nameB: string
-): { score: number; notes: string[] } {
+export function compareIndianNamesWithInitialExpansion(nameA: string, nameB: string): NameComparison {
   const tokensA = normalizeName(nameA);
   const tokensB = normalizeName(nameB);
 
   if (!tokensA.length || !tokensB.length) {
-    return { score: 0, notes: ["One or both names are empty after normalization."] };
+    return { score: 0, notes: ["One or both names are empty after normalization."], usedInitials: false, tokenSetScore: 0 };
   }
+
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  const union = new Set([...setA, ...setB]);
+  const tokenSetScore = [...setA].filter((t) => setB.has(t)).length / union.size;
 
   const strA = tokensA.join(" ");
   const strB = tokensB.join(" ");
 
   if (strA === strB) {
-    return { score: 1.0, notes: ["Exact string match after honorific, spelling-variant (Mohd/Md → Mohammad) and whitespace normalization."] };
-  }
-
-  // Token sort match (e.g., "Rahul Sharma" vs "Sharma Rahul")
-  const sortedA = [...tokensA].sort().join(" ");
-  const sortedB = [...tokensB].sort().join(" ");
-  if (sortedA === sortedB) {
     return {
-      score: 0.98,
-      notes: ["Exact match under token transposition (first/last name reversed)."]
+      score: 1.0,
+      notes: ["Exact string match after honorific, spelling-variant (Mohd/Md → Mohammad) and whitespace normalization."],
+      usedInitials: false,
+      tokenSetScore,
     };
   }
 
-  // Initial expansion matching
+  // Token sort match (e.g., "Rahul Sharma" vs "Sharma Rahul")
+  if ([...tokensA].sort().join(" ") === [...tokensB].sort().join(" ")) {
+    return { score: 0.98, notes: ["Exact match under token transposition (first/last name reversed)."], usedInitials: false, tokenSetScore };
+  }
+
   const notes: string[] = [];
   const matchedA = new Set<number>();
   const matchedB = new Set<number>();
+  let usedInitials = false;
 
-  // 1. Check exact token matches first
+  // 1. Exact token matches first
   for (let i = 0; i < tokensA.length; i++) {
     for (let j = 0; j < tokensB.length; j++) {
       if (matchedB.has(j)) continue;
@@ -202,7 +241,7 @@ export function compareIndianNamesWithInitialExpansion(
     }
   }
 
-  // 2. Check initial-to-word expansions
+  // 2. Initial-to-word expansions
   for (let i = 0; i < tokensA.length; i++) {
     if (matchedA.has(i)) continue;
     for (let j = 0; j < tokensB.length; j++) {
@@ -211,18 +250,20 @@ export function compareIndianNamesWithInitialExpansion(
       if (initialMatches(tokensA[i], tokensB[j])) {
         matchedA.add(i);
         matchedB.add(j);
-        notes.push(`Initial expansion confirmed: '${tokensA[i].toUpperCase()}.' matches '${tokensB[j]}'.`);
+        usedInitials = true;
+        notes.push(`Initial expansion: '${tokensA[i].toUpperCase()}.' matches '${tokensB[j]}'.`);
         break;
       } else if (initialMatches(tokensB[j], tokensA[i])) {
         matchedA.add(i);
         matchedB.add(j);
-        notes.push(`Initial expansion confirmed: '${tokensB[j].toUpperCase()}.' matches '${tokensA[i]}'.`);
+        usedInitials = true;
+        notes.push(`Initial expansion: '${tokensB[j].toUpperCase()}.' matches '${tokensA[i]}'.`);
         break;
       }
     }
   }
 
-  // 3. Check high-confidence fuzzy match for remaining unmatched tokens
+  // 3. High-confidence fuzzy match for remaining unmatched tokens
   for (let i = 0; i < tokensA.length; i++) {
     if (matchedA.has(i)) continue;
     let bestJ = -1;
@@ -238,170 +279,165 @@ export function compareIndianNamesWithInitialExpansion(
     if (bestJ !== -1) {
       matchedA.add(i);
       matchedB.add(bestJ);
-      notes.push(
-        `Phonetic/typo match: '${tokensA[i]}' ~ '${tokensB[bestJ]}' (${Math.round(bestScore * 100)}% JW).`
-      );
+      notes.push(`Phonetic/typo match: '${tokensA[i]}' ~ '${tokensB[bestJ]}' (${Math.round(bestScore * 100)}% JW).`);
     }
   }
 
   const totalTokens = Math.max(tokensA.length, tokensB.length);
-  const matchedCount = Math.min(matchedA.size, matchedB.size);
-  const tokenMatchRatio = matchedCount / totalTokens;
-
-  // Combine with raw full string Jaro-Winkler
+  const tokenMatchRatio = Math.min(matchedA.size, matchedB.size) / totalTokens;
   const rawJw = jaroWinkler(strA, strB);
-  const combined = Math.max(rawJw, tokenMatchRatio * 0.95);
+  let score = Math.max(rawJw, tokenMatchRatio * 0.95);
 
-  return { score: combined, notes };
+  if (usedInitials && score > INITIAL_ONLY_CAP) {
+    score = INITIAL_ONLY_CAP;
+    notes.push("Initial-only match: an initial stood in for a full word, so the score is capped. Confirm against a document.");
+  }
+  return { score, notes, usedInitials, tokenSetScore };
+}
+
+/** True when y-m-d is a real calendar date (rejects 31 Feb, month 13 and so on). */
+export function isRealDate(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
 }
 
 /**
- * Normalizes date of birth strings (handles YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY)
+ * Normalizes date of birth strings (handles YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY).
+ * The result is not guaranteed to be a real date. Use isRealDate.
  */
 export function normalizeDOB(dobStr: string): string {
   if (!dobStr) return "";
-  const clean = dobStr.trim().replace(/[\/\.]/g, "-");
+  const clean = dobStr.trim().replace(/[/.]/g, "-");
   const parts = clean.split("-");
 
   // Format: YYYY-MM-DD
   if (parts.length === 3 && parts[0].length === 4) {
-    const y = parts[0];
-    const m = parts[1].padStart(2, "0");
-    const d = parts[2].padStart(2, "0");
-    return `${y}-${m}-${d}`;
+    return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
   }
 
   // Format: DD-MM-YYYY
   if (parts.length === 3 && parts[2].length === 4) {
-    const d = parts[0].padStart(2, "0");
-    const m = parts[1].padStart(2, "0");
-    const y = parts[2];
-    return `${y}-${m}-${d}`;
+    return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
   }
 
   return clean;
 }
 
-/**
- * Compare Dates of Birth
- */
-export function compareDOB(dobA: string, dobB: string): { score: number; note?: string } {
+export interface DobComparison {
+  /** Null when either side is blank, so the field is left out of the confidence. */
+  score: number | null;
+  note?: string;
+  literal: boolean; // both real dates and equal
+}
+
+export function compareDOB(dobA: string, dobB: string): DobComparison {
   const normA = normalizeDOB(dobA);
   const normB = normalizeDOB(dobB);
 
   if (!normA || !normB) {
-    return { score: 50, note: "DOB missing in one of the demographic sources." };
+    return { score: null, note: "Date of birth is missing on one side, so it was not compared.", literal: false };
   }
-
-  if (normA === normB) {
-    return { score: 100, note: "Date of Birth matches exactly (100%)." };
+  if (!isRealDate(normA) || !isRealDate(normB)) {
+    const bad = !isRealDate(normA) ? dobA : dobB;
+    return { score: 0, note: `Date of birth '${bad}' is not a real calendar date.`, literal: false };
   }
+  if (normA === normB) return { score: 100, note: "Date of Birth matches exactly.", literal: true };
 
-  // Check for day/month transposition (e.g. 2004-05-04 vs 2004-04-05)
+  // Day and month swapped (e.g. 2004-05-04 vs 2004-04-05)
   const [yA, mA, dA] = normA.split("-");
   const [yB, mB, dB] = normB.split("-");
-
   if (yA === yB && mA === dB && dA === mB) {
-    return {
-      score: 80,
-      note: "Likely DD/MM vs MM/DD transposition error between ERP and DigiLocker."
-    };
+    return { score: 80, note: "Likely DD/MM vs MM/DD transposition error between ERP and DigiLocker.", literal: false };
   }
-
-  if (yA === yB) {
-    return {
-      score: 55,
-      note: "Birth year matches, but day or month differs."
-    };
-  }
-
-  return {
-    score: 0,
-    note: `DOB discrepancy: ERP (${dobA}) vs DigiLocker (${dobB}).`
-  };
+  if (yA === yB) return { score: 55, note: "Birth year matches, but day or month differs.", literal: false };
+  return { score: 0, note: `DOB discrepancy: ERP (${dobA}) vs DigiLocker (${dobB}).`, literal: false };
 }
 
-/**
- * Compare Gender
- */
-export function compareGender(gA?: string, gB?: string): { score: number; note?: string } {
-  if (!gA || !gB) return { score: 100 }; // Neutral if absent
+export function compareGender(gA?: string, gB?: string): { score: number | null; note?: string } {
+  if (!gA?.trim() || !gB?.trim()) return { score: null, note: "Gender is missing on one side, so it was not compared." };
 
   const cleanA = gA.trim().toUpperCase()[0];
   const cleanB = gB.trim().toUpperCase()[0];
-
-  if (cleanA === cleanB) {
-    return { score: 100, note: "Gender matches." };
-  }
-
+  if (cleanA === cleanB) return { score: 100, note: "Gender matches." };
   return { score: 0, note: `Gender divergence: ERP (${gA}) vs DigiLocker (${gB}).` };
 }
 
+const WEIGHTS = { name: 55, dob: 35, gender: 10, guardian: 15 } as const;
+
 /**
- * Core Pre-Flight Matcher Pipeline
+ * Core pre-flight matcher pipeline. `erp` is what the college holds; `digilocker` is the
+ * government record the API will compare against.
  */
-export function runPreFlightFuzzyMatch(
-  erp: StudentDemographicRecord,
-  digilocker: StudentDemographicRecord
-): MatchScoreBreakdown {
+export function runPreFlightFuzzyMatch(erp: StudentDemographicRecord, digilocker: StudentDemographicRecord): MatchScoreBreakdown {
   const discrepancies: string[] = [];
   const reconciliationNotes: string[] = [];
 
-  // 1. Name Evaluation
+  // 1. Name
   const rawJw = jaroWinkler(erp.name.toLowerCase(), digilocker.name.toLowerCase());
-  const indianNameResult = compareIndianNamesWithInitialExpansion(erp.name, digilocker.name);
-
-  reconciliationNotes.push(...indianNameResult.notes);
-
-  const nameScore = Math.round(indianNameResult.score * 100);
-
-  if (nameScore < 100) {
-    discrepancies.push(`Name variance: ERP '${erp.name}' vs DigiLocker '${digilocker.name}' (${nameScore}% match)`);
+  const nameResult = compareIndianNamesWithInitialExpansion(erp.name, digilocker.name);
+  reconciliationNotes.push(...nameResult.notes);
+  const nameScore = Math.round(nameResult.score * 100);
+  const nameLiteral = literalName(erp.name) === literalName(digilocker.name) && literalName(erp.name) !== "";
+  if (!nameLiteral) {
+    discrepancies.push(`Name differs: ERP '${erp.name}' vs DigiLocker '${digilocker.name}' (${nameScore}% similar)`);
   }
 
-  // 2. DOB Evaluation
-  const dobResult = compareDOB(erp.dob, digilocker.dob);
-  if (dobResult.note) {
-    if (dobResult.score === 100) {
-      reconciliationNotes.push(dobResult.note);
-    } else {
-      discrepancies.push(dobResult.note);
-    }
-  }
+  // 2. DOB
+  const dob = compareDOB(erp.dob, digilocker.dob);
+  if (dob.note) (dob.literal ? reconciliationNotes : discrepancies).push(dob.note);
 
-  // 3. Gender Evaluation
-  const genderResult = compareGender(erp.gender, digilocker.gender);
-  if (genderResult.note) {
-    if (genderResult.score === 100) {
-      reconciliationNotes.push(genderResult.note);
-    } else {
-      discrepancies.push(genderResult.note);
-    }
-  }
+  // 3. Gender
+  const gender = compareGender(erp.gender, digilocker.gender);
+  if (gender.note) (gender.score === 100 || gender.score === null ? reconciliationNotes : discrepancies).push(gender.note);
 
-  // 4. Guardian Evaluation (if available)
-  let guardianScore = 100;
-  if (erp.guardianName && digilocker.guardianName) {
-    const gResult = compareIndianNamesWithInitialExpansion(erp.guardianName, digilocker.guardianName);
-    guardianScore = Math.round(gResult.score * 100);
+  // 4. Guardian (only when both sides have it)
+  let guardianScore: number | null = null;
+  if (erp.guardianName?.trim() && digilocker.guardianName?.trim()) {
+    guardianScore = Math.round(compareIndianNamesWithInitialExpansion(erp.guardianName, digilocker.guardianName).score * 100);
     if (guardianScore < 100) {
-      discrepancies.push(`Guardian mismatch: ERP '${erp.guardianName}' vs DigiLocker '${digilocker.guardianName}'`);
+      discrepancies.push(`Guardian name differs: ERP '${erp.guardianName}' vs DigiLocker '${digilocker.guardianName}'`);
     } else {
       reconciliationNotes.push("Guardian name validated.");
     }
   }
 
-  // 5. Overall Confidence Calculation
-  // Weights: Name: 55%, DOB: 35%, Gender: 10%
-  const overallConfidence = Math.round(
-    nameScore * 0.55 + dobResult.score * 0.35 + genderResult.score * 0.10
-  );
+  // 5. Confidence. A missing field leaves the average. It never counts as a perfect match.
+  const parts: { w: number; score: number }[] = [{ w: WEIGHTS.name, score: nameScore }];
+  if (dob.score !== null) parts.push({ w: WEIGHTS.dob, score: dob.score });
+  if (gender.score !== null) parts.push({ w: WEIGHTS.gender, score: gender.score });
+  if (guardianScore !== null) parts.push({ w: WEIGHTS.guardian, score: guardianScore });
+  const totalWeight = parts.reduce((n, p) => n + p.w, 0);
+  const sameIdentityConfidence = Math.round(parts.reduce((n, p) => n + p.w * p.score, 0) / totalWeight);
 
-  // 6. Classification
+  // 6. Would the API accept the ERP record as it is?
+  const apiWillAccept: ApiAcceptance = {
+    name: nameLiteral,
+    dob: dob.literal,
+    gender: gender.score === null ? null : gender.score === 100,
+    all: false,
+  };
+  apiWillAccept.all = apiWillAccept.name && apiWillAccept.dob && apiWillAccept.gender !== false;
+
+  // 7. Classification
+  const suggestedFixes: SuggestedFix[] = [];
   let classification: MatchClassification;
-  if (overallConfidence === 100 || (nameScore >= 98 && dobResult.score === 100 && genderResult.score === 100)) {
+  if (apiWillAccept.all) {
     classification = "EXACT_MATCH";
-  } else if (overallConfidence >= 65) {
+  } else if (sameIdentityConfidence >= 95 && dob.literal && apiWillAccept.gender !== false && !nameResult.usedInitials) {
+    // Same person, and the only difference is how the name is spelled. Aadhaar is the source of truth.
+    classification = "AUTO_FIXABLE";
+    suggestedFixes.push({
+      field: "name",
+      from: erp.name,
+      to: digilocker.name,
+      text: `Change ERP name to '${digilocker.name}' to match the Aadhaar record.`,
+    });
+  } else if (sameIdentityConfidence >= 65) {
     classification = "SOFT_MISMATCH_REVIEW";
   } else {
     classification = "HARD_REJECT";
@@ -409,14 +445,17 @@ export function runPreFlightFuzzyMatch(
 
   return {
     rawNameJaroWinkler: Math.round(rawJw * 100) / 100,
-    initialExpansionScore: Math.round(indianNameResult.score * 100) / 100,
-    tokenSetScore: Math.round(indianNameResult.score * 100) / 100,
+    initialExpansionScore: Math.round(nameResult.score * 100) / 100,
+    tokenSetScore: Math.round(nameResult.tokenSetScore * 100) / 100,
     nameFinalScore: nameScore,
-    dobScore: dobResult.score,
-    genderScore: genderResult.score,
+    dobScore: dob.score,
+    genderScore: gender.score,
     guardianScore,
-    overallConfidence,
+    sameIdentityConfidence,
+    overallConfidence: sameIdentityConfidence,
+    apiWillAccept,
     classification,
+    suggestedFixes,
     discrepancies,
     reconciliationNotes,
   };

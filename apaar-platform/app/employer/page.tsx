@@ -1,14 +1,23 @@
 import PortalShell from "../components/portal/PortalShell";
+import OfflineSupport from "../components/employer/OfflineSupport";
+import { translate } from "@/lib/i18n";
+import { currentLang } from "@/lib/lang-server";
+import ApiAccess from "../components/employer/ApiAccess";
 import SmartVerifier from "../components/employer/SmartVerifier";
 
-export default function EmployerPage() {
+export default async function EmployerPage() {
+  const lang = await currentLang();
   return (
     <PortalShell
       active="/employer"
-      title="Verify a degree without seeing a marksheet"
-      subtitle="Scan a Smart QR or look up an APAAR ID. You get live status and the yes-or-no claims the student allowed, with every ID number redacted."
+      title={translate(lang, "employer.title")}
+      subtitle={translate(lang, "employer.subtitle")}
     >
+      <OfflineSupport />
       <SmartVerifier />
+      <div className="mt-6">
+        <ApiAccess />
+      </div>
     </PortalShell>
   );
 }

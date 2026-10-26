@@ -1,3 +1,5 @@
+import { DEFAULT_BACKLOG_RULE, computeCumulative, type BacklogRule, type CourseAttempt } from "./nadSyncEngine";
+
 /** Sample academic record for the Digital Twin. The student and institution are fictional. */
 
 export interface TwinCourse {
@@ -27,7 +29,6 @@ export interface TwinSemester {
   semester: number;
   year: number;
   status: "COMPLETED" | "PLANNED";
-  sgpa?: number;
   courses: TwinCourse[];
   internships: TwinInternship[];
   certificates: TwinCertificate[];
@@ -48,7 +49,6 @@ export const TWIN: TwinSemester[] = [
     semester: 1,
     year: 1,
     status: "COMPLETED",
-    sgpa: 8.4,
     courses: [
       { code: "MA101", title: "Engineering Mathematics I", credits: 4, grade: "A", skills: ["statistics"] },
       { code: "PH101", title: "Engineering Physics", credits: 3, grade: "A+", skills: ["electronics"] },
@@ -67,7 +67,6 @@ export const TWIN: TwinSemester[] = [
     semester: 2,
     year: 1,
     status: "COMPLETED",
-    sgpa: 8.6,
     courses: [
       { code: "MA102", title: "Engineering Mathematics II", credits: 4, grade: "A", skills: ["statistics"] },
       { code: "CY101", title: "Engineering Chemistry", credits: 3, grade: "B+", skills: [] },
@@ -85,7 +84,6 @@ export const TWIN: TwinSemester[] = [
     semester: 3,
     year: 2,
     status: "COMPLETED",
-    sgpa: 8.8,
     courses: [
       { code: "MA201", title: "Discrete Mathematics", credits: 4, grade: "A+", skills: [] },
       { code: "CS201", title: "Object Oriented Programming", credits: 4, grade: "O", skills: [] },
@@ -105,7 +103,6 @@ export const TWIN: TwinSemester[] = [
     semester: 4,
     year: 2,
     status: "COMPLETED",
-    sgpa: 7.9,
     courses: [
       { code: "CS301", title: "Design & Analysis of Algorithms", credits: 4, grade: "A", skills: [] },
       { code: "CS302", title: "Systems Programming", credits: 4, grade: "A+", skills: ["linux", "scripting"] },
@@ -124,7 +121,6 @@ export const TWIN: TwinSemester[] = [
     semester: 5,
     year: 3,
     status: "COMPLETED",
-    sgpa: 8.8,
     courses: [
       { code: "CS401", title: "Operating Systems & Kernels", credits: 4, grade: "A+", skills: ["linux"] },
       { code: "CS402", title: "Compiler Design & Automata", credits: 4, grade: "A", skills: [] },
@@ -143,7 +139,6 @@ export const TWIN: TwinSemester[] = [
     semester: 6,
     year: 3,
     status: "COMPLETED",
-    sgpa: 9.1,
     courses: [
       { code: "CS501", title: "Distributed Systems", credits: 4, grade: "A+", skills: ["distsys"] },
       { code: "CS502", title: "Cloud Computing", credits: 4, grade: "O", skills: ["cloud"] },
@@ -187,6 +182,30 @@ const GRADE_POINTS: Record<TwinCourse["grade"], number> = { O: 10, "A+": 9, A: 8
 
 const earnedIn = (s: TwinSemester) => s.courses.filter((c) => c.grade !== "F").reduce((n, c) => n + c.credits, 0);
 
+/** SGPA from the semester's own course grades (credit-weighted, failed courses included). Null for a planned semester. */
+export function semesterSgpa(sem: TwinSemester): number | null {
+  if (sem.status !== "COMPLETED") return null;
+  const registered = sem.courses.reduce((n, c) => n + c.credits, 0);
+  if (registered === 0) return null;
+  const points = sem.courses.reduce((n, c) => n + GRADE_POINTS[c.grade] * c.credits, 0);
+  return Math.round((points / registered) * 100) / 100;
+}
+
+function completedAttempts(twin: TwinSemester[]): CourseAttempt[] {
+  return twin
+    .filter((s) => s.status === "COMPLETED")
+    .flatMap((s) =>
+      s.courses.map((c) => ({
+        semester: s.semester,
+        courseCode: c.code,
+        letterGrade: c.grade,
+        gradePoints: GRADE_POINTS[c.grade],
+        creditsRegistered: c.credits,
+        creditsEarned: c.grade === "F" ? 0 : c.credits,
+      }))
+    );
+}
+
 export interface TwinTotals {
   creditsEarned: number;
   cgpa: number;
@@ -195,28 +214,112 @@ export interface TwinTotals {
   scheduledRemaining: number[];
 }
 
-export function twinTotals(twin: TwinSemester[] = TWIN): TwinTotals {
+/** Totals over COMPLETED semesters only, using the same attempt and backlog rules as the NAD engine. */
+export function twinTotals(twin: TwinSemester[] = TWIN, rule: BacklogRule = DEFAULT_BACKLOG_RULE): TwinTotals {
   const done = twin.filter((s) => s.status === "COMPLETED");
-  let points = 0;
-  let registered = 0;
-  for (const s of done) {
-    for (const c of s.courses) {
-      points += GRADE_POINTS[c.grade] * c.credits;
-      registered += c.credits;
-    }
-  }
+  const cumulative = computeCumulative(null, completedAttempts(twin), rule);
   return {
-    creditsEarned: done.reduce((n, s) => n + earnedIn(s), 0),
-    cgpa: registered ? Math.round((points / registered) * 100) / 100 : 0,
+    creditsEarned: cumulative.creditsEarned,
+    cgpa: cumulative.cgpa ?? 0,
     swayamCredits: done.flatMap((s) => s.courses).filter((c) => c.swayam).reduce((n, c) => n + c.credits, 0),
     completedThrough: done.length ? done[done.length - 1].semester : 0,
     scheduledRemaining: twin.filter((s) => s.status === "PLANNED").map((s) => s.courses.reduce((n, c) => n + c.credits, 0)),
   };
 }
 
-/** Credits earned if the student exits after the given semester. */
+/** Credits actually earned through the given semester. Planned semesters add nothing. */
 export function creditsThroughSemester(n: number, twin: TwinSemester[] = TWIN): number {
-  return twin.filter((s) => s.semester <= n).reduce((sum, s) => sum + earnedIn(s), 0);
+  return computeCumulative(null, completedAttempts(twin.filter((s) => s.semester <= n))).creditsEarned;
+}
+
+/** Credits if every planned course up to the given semester is also cleared. A projection, never eligibility. */
+export function projectedCreditsThrough(n: number, twin: TwinSemester[] = TWIN): number {
+  return creditsThroughSemester(n, twin) + twin.filter((s) => s.status === "PLANNED" && s.semester <= n).reduce((sum, s) => sum + earnedIn(s), 0);
 }
 
 export { earnedIn as semesterCreditsEarned };
+
+/* ── Several sample students ─────────────────────────────────────────────
+ * Each one is derived from the base record (Rahul) with a different story, so the portals have
+ * real variety to show: a strong record, an open backlog, a large credit shortfall.
+ * All fictional. */
+
+export interface StudentProfile {
+  label: string;
+  roll: string;
+  program: string;
+  institution: string;
+  story: string;
+}
+
+interface TwinSpec {
+  /** Moves every grade up (+) or down (-) the ladder. A failed grade stays failed. */
+  gradeShift: number;
+  /** none: no failed course. open: failed and not yet retaken. base: keep the base record's backlog, cleared in Sem 5. */
+  backlog: "base" | "none" | "open";
+  /** Credits the curriculum schedules for semesters 7 and 8. */
+  planned: [number, number];
+  noSwayam?: boolean;
+}
+
+const LADDER: TwinCourse["grade"][] = ["P", "C", "B", "B+", "A", "A+", "O"];
+const shiftGrade = (g: TwinCourse["grade"], n: number): TwinCourse["grade"] =>
+  g === "F" ? "F" : LADDER[Math.min(LADDER.length - 1, Math.max(0, LADDER.indexOf(g) + n))];
+
+function deriveTwin(base: TwinSemester[], spec: TwinSpec): TwinSemester[] {
+  return base.map((sem) => {
+    let courses: TwinCourse[] = sem.courses.map((c) => ({ ...c, grade: shiftGrade(c.grade, spec.gradeShift), swayam: spec.noSwayam ? undefined : c.swayam }));
+    let backlogs = sem.backlogs.map((b) => ({ ...b }));
+
+    if (spec.backlog === "none") {
+      courses = courses.filter((c) => c.code !== "CS305");
+      backlogs = [];
+    } else if (spec.backlog === "open") {
+      courses = courses.filter((c) => !c.backlogClearedFrom);
+      backlogs = backlogs.map((b) => ({ code: b.code, title: b.title, failedGrade: b.failedGrade }));
+    }
+
+    if (sem.status === "PLANNED") {
+      const total = sem.semester === 7 ? spec.planned[0] : spec.planned[1];
+      // Semester 7 keeps its two 3-credit courses; the project takes the rest. Semester 8 is the project alone.
+      courses = courses.map((c, i) => (sem.semester === 7 ? (i === 0 ? { ...c, credits: Math.max(1, total - 6) } : c) : { ...c, credits: total }));
+    }
+    return { ...sem, courses, backlogs };
+  });
+}
+
+const SPECS: Record<string, { profile: StudentProfile; spec: TwinSpec }> = {
+  "STU-RKV": {
+    profile: { label: "Rahul K.V.", roll: "2023-CS-041", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Solid record, one backlog cleared, 12 credits short on the current plan." },
+    spec: { gradeShift: 0, backlog: "base", planned: [12, 8] },
+  },
+  "STU-AB": {
+    profile: { label: "Ananya Banerjee", roll: "2023-CS-007", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Strong record, no backlogs, on track for 160 credits." },
+    spec: { gradeShift: 1, backlog: "none", planned: [20, 15] },
+  },
+  "STU-IQ": {
+    profile: { label: "Imran Q.", roll: "2023-CS-066", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "One failed course not yet retaken, and short on credits." },
+    spec: { gradeShift: -1, backlog: "open", planned: [12, 8], noSwayam: true },
+  },
+  "STU-PL": {
+    profile: { label: "Priya L.", roll: "2023-CS-093", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "A large credit shortfall: the plan leaves her well under 160." },
+    spec: { gradeShift: -2, backlog: "none", planned: [9, 6], noSwayam: true },
+  },
+};
+
+const twinCache = new Map<string, TwinSemester[]>();
+
+/** The academic twin for a student, or null when this student has none. */
+export function twinFor(studentId: string): TwinSemester[] | null {
+  const entry = SPECS[studentId];
+  if (!entry) return null;
+  let twin = twinCache.get(studentId);
+  if (!twin) {
+    twin = deriveTwin(TWIN, entry.spec);
+    twinCache.set(studentId, twin);
+  }
+  return twin;
+}
+
+export const profileFor = (studentId: string): StudentProfile | null => SPECS[studentId]?.profile ?? null;
+export const studentsWithTwin = () => Object.keys(SPECS);
