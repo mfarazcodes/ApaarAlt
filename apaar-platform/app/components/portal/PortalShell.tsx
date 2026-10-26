@@ -3,19 +3,15 @@ import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { demoMode } from "@/lib/config";
-import { translate } from "@/lib/i18n";
+import { portalKey, translate } from "@/lib/i18n";
 import { currentLang } from "@/lib/lang-server";
 import { PAGE_ACCESS } from "@/lib/personas";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { I18nProvider, LanguageSwitcher } from "./I18n";
 import { ConfigBanner, SessionBar } from "./SessionBar";
-import ThemeSwitcher from "./ThemeSwitcher";
+import { ToastProvider } from "./Toast";
 
-const PORTALS = [
-  { href: "/admin", key: "nav.admin" },
-  { href: "/student", key: "nav.student" },
-  { href: "/employer", key: "nav.employer" },
-] as const;
+const PORTALS = [{ href: "/admin" }, { href: "/student" }, { href: "/employer" }] as const;
 
 /* A calmer cousin of the hero circuit: a few traces and one pulse, behind everything. */
 const TRACES = [
@@ -77,6 +73,7 @@ export default async function PortalShell({
   const portals = session ? PORTALS.filter((p) => PAGE_ACCESS[p.href].includes(session.role)) : PORTALS;
   return (
     <I18nProvider lang={lang}>
+    <ToastProvider>
     <div className="min-h-screen p-3 sm:p-5">
       <a href="#main-content" className="sr-only rounded-xl bg-paper px-4 py-2 text-sm font-semibold text-deep focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]">{translate(lang, "a11y.skip")}</a>
       <div className="relative mx-auto max-w-[1400px] overflow-hidden rounded-[28px] bg-deep text-white">
@@ -90,24 +87,29 @@ export default async function PortalShell({
             <span className="text-[17px] font-semibold tracking-tight">APAAR Bridge</span>
           </Link>
 
-          <nav aria-label={translate(lang, "nav.portals")} className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
-            {portals.map((p) => (
-              <Link
-                key={p.href}
-                href={p.href}
-                aria-current={p.href === active ? "page" : undefined}
-                className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition ${
-                  p.href === active ? "bg-paper text-deep" : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                {translate(lang, p.key)}
-              </Link>
-            ))}
-          </nav>
+          {/* Every role can open exactly one portal, so a menu of one is noise: show its name instead. */}
+          {portals.length > 1 ? (
+            <nav aria-label={translate(lang, "nav.portals")} className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
+              {portals.map((p) => (
+                <Link
+                  key={p.href}
+                  href={p.href}
+                  aria-current={p.href === active ? "page" : undefined}
+                  className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition ${
+                    p.href === active ? "bg-paper text-deep" : "text-white/70 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {translate(lang, portalKey(p.href, session?.role))}
+                </Link>
+              ))}
+            </nav>
+          ) : (
+            <p className="order-3 w-full text-center text-sm font-semibold text-white/80 sm:order-none sm:w-auto">{translate(lang, portalKey(active, session?.role))}</p>
+          )}
 
           <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+            {demoMode() && <span className="px-2 text-xs font-semibold text-amber-200">{translate(lang, "shell.demoChip")}</span>}
             <LanguageSwitcher />
-            <ThemeSwitcher variant="dark" />
           </div>
         </header>
 
@@ -117,7 +119,8 @@ export default async function PortalShell({
             <SessionBar name={session.name} roleLabel={translate(lang, `role.${session.role}`)} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
           </div>
         )}
-        <ConfigBanner />
+        {/* Missing-setting warnings are for whoever runs the deployment, not for students or employers. */}
+        {(process.env.NODE_ENV === "development" || session?.role === "REGISTRAR" || session?.role === "AICTE") && <ConfigBanner />}
 
         <div className="relative z-10 px-4 pb-16 pt-12 sm:px-8">
           <div className="mb-10 max-w-3xl">
@@ -129,6 +132,7 @@ export default async function PortalShell({
         </main>
       </div>
     </div>
+    </ToastProvider>
     </I18nProvider>
   );
 }

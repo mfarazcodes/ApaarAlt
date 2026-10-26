@@ -15,7 +15,7 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">{children}</p>;
+  return <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">{children}</p>;
 }
 
 export function SectionTitle({ eyebrow, title, hint }: { eyebrow?: string; title: string; hint?: ReactNode }) {
@@ -46,6 +46,11 @@ export function Pill({ tone = "neutral", children, className = "" }: { tone?: To
   );
 }
 
+/** A grey placeholder block shown while data loads, so the layout does not jump. */
+export function Skeleton({ className = "h-24" }: { className?: string }) {
+  return <div aria-hidden="true" className={`animate-pulse rounded-xl bg-white/[0.07] motion-reduce:animate-none ${className}`} />;
+}
+
 export function Notice({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <div role={tone === "red" ? "alert" : "status"} className={`rounded-xl px-3.5 py-3 text-sm ${TONES[tone]}`}>
@@ -73,10 +78,11 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-accent" : "bg-white/20"}`}
+      // 24px tall to match WCAG 2.2 target size, with an invisible 44px hit area around it.
+      className={`relative h-6 w-11 shrink-0 rounded-full transition before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-accent" : "bg-white/25"}`}
     >
       <span
-        className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`}
+        className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : ""}`}
       />
     </button>
   );
@@ -179,7 +185,7 @@ export function Tabs<T extends string>({
         >
           {t.label}
           {t.badge && (
-            <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${value === t.id ? "bg-deep/10 text-deep" : "bg-white/10 text-white/70"}`}>
+            <span className={`rounded-md px-1.5 py-0.5 text-xs ${value === t.id ? "bg-deep/10 text-deep" : "bg-white/10 text-white/70"}`}>
               {t.badge}
             </span>
           )}

@@ -165,13 +165,13 @@ export default function AuditTrail() {
                   <Pill className="mr-2">{TYPE_LABEL[e.type]}</Pill>
                   <span className="text-xs font-semibold">{e.action.replace(/_/g, " ")}</span>
                   <span className="mt-0.5 block text-xs text-white/60">{e.detail}</span>
-                  <span className="font-mono text-[10px] text-white/55">{e.subject}</span>
+                  <span className="font-mono text-xs text-white/55">{e.subject}</span>
                 </td>
                 <td className="px-3 py-2 text-xs text-white/70">
                   {e.actor}
-                  <span className="block text-[10px] text-white/55">{e.actorRole.replace(/_/g, " ")}</span>
+                  <span className="block text-xs text-white/55">{e.actorRole.replace(/_/g, " ")}</span>
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-white/55" title={e.sha256Hash}>
+                <td className="px-3 py-2 font-mono text-xs text-white/55" title={e.sha256Hash}>
                   {short(e.sha256Hash)}
                   <span className="block text-white/50" title={e.previousHash}>← {short(e.previousHash)}</span>
                 </td>

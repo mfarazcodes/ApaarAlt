@@ -246,7 +246,7 @@ export default function SmartVerifier() {
                         <QrCode width={16} height={16} className={`${ICON} text-accent-soft`} />
                         {s.label}
                       </span>
-                      <span className="font-mono text-[11px] text-white/55">{s.cid}</span>
+                      <span className="font-mono text-xs text-white/55">{s.cid}</span>
                     </button>
                   </li>
                 ))}

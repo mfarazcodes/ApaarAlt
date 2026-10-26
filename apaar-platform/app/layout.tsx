@@ -1,23 +1,20 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { currentLang } from "@/lib/lang-server";
 
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   title: "APAAR Bridge — Unified Student Data Verification",
   description:
-    "Bridge College ERPs, AICTE compliance, NAD/ABC credits and student consent in one verification layer that catches mismatches early and keeps working through portal timeouts.",
+    "Colleges fix name and marks errors before APAAR rejects them. Students choose who sees what. Employers check a degree in seconds, even offline.",
 };
 
-// Applies the saved accent theme before first paint so the page never flashes the default.
-const themeInit = `try{var t=localStorage.getItem("apaar-theme");if(t==="emerald"||t==="cobalt"||t==="amber"){document.documentElement.dataset.theme=t}}catch(e){}`;
-
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // The language is read on the server so the first paint, and screen readers, get the right one.
+  const lang = await currentLang();
   return (
-    <html lang="en" data-theme="emerald" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
-      </head>
+    <html lang={lang} data-theme="emerald">
       <body>{children}</body>
     </html>
   );

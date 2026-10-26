@@ -102,7 +102,7 @@ export default function ConsentPhone({
                 role="radio"
                 aria-checked={channel === c}
                 onClick={() => setChannel(c)}
-                className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${channel === c ? "bg-accent text-deep" : "bg-white/10 text-white/70"}`}
+                className={`rounded-md px-2 py-0.5 text-xs font-semibold ${channel === c ? "bg-accent text-deep" : "bg-white/10 text-white/70"}`}
               >
                 {c === "SMS" ? "SMS" : "WhatsApp"}
               </button>
