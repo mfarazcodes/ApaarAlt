@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useT } from "./I18n";
 
 /** Every icon in the portals is sized with this so nothing can expand to full width. */
@@ -274,3 +274,16 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export const inputClass =
   "w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/55 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+
+/** A closed-by-default section for technical detail or demo-only controls. Keyboard accessible (a native details element). */
+export function Disclosure({ summary, children, className = "" }: { summary: string; children: ReactNode; className?: string }) {
+  return (
+    <details className={`group rounded-xl border border-white/10 bg-white/[0.03] ${className}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/[0.06]">
+        <ChevronRight width={16} height={16} className="h-4 w-4 shrink-0 transition group-open:rotate-90" />
+        {summary}
+      </summary>
+      <div className="border-t border-white/10 p-3.5">{children}</div>
+    </details>
+  );
+}
