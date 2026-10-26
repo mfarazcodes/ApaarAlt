@@ -25,6 +25,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
   const [busy, setBusy] = useState(false);
   const [samples, setSamples] = useState<{ original: string; revaluation: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const shownMapping = csv.trim() ? mapping : null;
 
   useEffect(() => {
     api<{ sampleMessyCsv: string; sampleRevaluationCsv: string }>("/api/sync/aicte-nad")
@@ -34,10 +35,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
 
   // The schema mapper runs as you type, so mistakes in the headers show before anything is synced.
   useEffect(() => {
-    if (!csv.trim()) {
-      setMapping(null);
-      return;
-    }
+    if (!csv.trim()) return;
     const timer = setTimeout(() => {
       api<{ mapping: SchemaMappingResult }>("/api/sync/aicte-nad", { action: "MAP_SCHEMA", csvText: csv })
         .then((r) => (setMapping(r.mapping), setError("")))
@@ -128,12 +126,12 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
         {/* AI schema mapper */}
         <div>
           <Eyebrow>AI schema mapper</Eyebrow>
-          {!mapping ? (
+          {!shownMapping ? (
             <p className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center text-sm text-white/55">Load a CSV to see how its columns map to NAD fields.</p>
           ) : (
             <>
               <ul className="mt-3 divide-y divide-white/[0.08] rounded-xl border border-white/10">
-                {mapping.mappings.map((m) => (
+                {shownMapping.mappings.map((m) => (
                   <li key={m.source} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
                     <span className="font-mono text-xs text-white/75">{m.source}</span>
                     <span className="flex items-center gap-2">
@@ -147,8 +145,8 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
                 ))}
               </ul>
               <div className="mt-3 space-y-2">
-                {mapping.missingRequired.length > 0 && <Notice tone="red">Missing required columns: {mapping.missingRequired.join(", ")}. This sheet cannot be synced.</Notice>}
-                {mapping.warnings.map((w) => (
+                {shownMapping.missingRequired.length > 0 && <Notice tone="red">Missing required columns: {shownMapping.missingRequired.join(", ")}. This sheet cannot be synced.</Notice>}
+                {shownMapping.warnings.map((w) => (
                   <Notice key={w} tone="amber">{w}</Notice>
                 ))}
               </div>
@@ -158,8 +156,8 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-white/10 pt-5">
-        <Button disabled={busy || !csv.trim() || Boolean(mapping?.missingRequired.length)} onClick={() => run("PREVIEW")}>Preview diff</Button>
-        <Button variant="primary" disabled={busy || !csv.trim() || Boolean(mapping?.missingRequired.length)} onClick={() => run("SYNC")}>Sync to NAD</Button>
+        <Button disabled={busy || !csv.trim() || Boolean(shownMapping?.missingRequired.length)} onClick={() => run("PREVIEW")}>Preview diff</Button>
+        <Button variant="primary" disabled={busy || !csv.trim() || Boolean(shownMapping?.missingRequired.length)} onClick={() => run("SYNC")}>Sync to NAD</Button>
       </div>
 
       {error && <div className="mt-4"><Notice tone="red">{error}</Notice></div>}

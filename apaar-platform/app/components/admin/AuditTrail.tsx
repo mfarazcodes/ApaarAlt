@@ -26,7 +26,8 @@ export default function AuditTrail() {
   }, []);
 
   useEffect(() => {
-    load();
+    const first = setTimeout(load, 0);
+    return () => clearTimeout(first);
   }, [load]);
 
   const shown = tampered ?? entries;

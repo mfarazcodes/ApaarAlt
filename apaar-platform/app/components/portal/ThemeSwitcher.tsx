@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 export const THEMES = [
   { id: "emerald", label: "Emerald Fintech", color: "#10B981" },
@@ -10,17 +10,22 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]["id"];
 
-/** Reads and writes the accent theme on <html data-theme>. layout.tsx applies the saved choice before first paint. */
-export function useTheme() {
-  const [theme, setTheme] = useState<ThemeId>("emerald");
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
 
-  useEffect(() => {
-    const current = document.documentElement.dataset.theme as ThemeId | undefined;
-    if (current && THEMES.some((t) => t.id === current)) setTheme(current);
-  }, []);
+function snapshot(): ThemeId {
+  const current = document.documentElement.dataset.theme as ThemeId | undefined;
+  return current && THEMES.some((t) => t.id === current) ? current : "emerald";
+}
+
+/** The accent theme lives on <html data-theme>. layout.tsx applies the saved choice before first paint. */
+export function useTheme() {
+  const theme = useSyncExternalStore(subscribe, snapshot, () => "emerald" as ThemeId);
 
   function pick(id: ThemeId) {
-    setTheme(id);
     document.documentElement.dataset.theme = id;
     try {
       localStorage.setItem("apaar-theme", id);

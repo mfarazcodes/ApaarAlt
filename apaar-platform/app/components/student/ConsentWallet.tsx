@@ -45,10 +45,11 @@ export default function ConsentWallet() {
 
   // Employer requests arrive from another tab, so refresh on a timer and when the tab regains focus.
   useEffect(() => {
-    load();
+    const first = setTimeout(load, 0);
     const timer = setInterval(load, 5000);
     window.addEventListener("focus", load);
     return () => {
+      clearTimeout(first);
       clearInterval(timer);
       window.removeEventListener("focus", load);
     };
