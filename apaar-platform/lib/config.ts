@@ -34,12 +34,15 @@ export interface ConfigReport {
 export function configReport(): ConfigReport {
   const has = (n: string) => Boolean(process.env[n]);
   const required = { VAULT_PEPPER: has("VAULT_PEPPER"), SESSION_SECRET: has("SESSION_SECRET"), ISSUER_PRIVATE_KEY_PEM: has("ISSUER_PRIVATE_KEY_PEM") };
-  const recommended = { DATABASE_URL: has("DATABASE_URL") };
+  const recommended = { DATABASE_URL: has("DATABASE_URL"), CRON_SECRET: has("CRON_SECRET") };
 
   const missing = isProduction() ? Object.entries(required).filter(([, ok]) => !ok).map(([k]) => k) : [];
   const warnings: string[] = [];
   if (isProduction() && !recommended.DATABASE_URL) {
     warnings.push("DATABASE_URL is not set. State lives in memory, so consent, sync data and the audit trail are lost on restart and are not shared between serverless instances.");
+  }
+  if (isProduction() && !recommended.CRON_SECRET) {
+    warnings.push("CRON_SECRET is not set. A scheduler cannot drain the sync retry queue, so only a signed-in registrar can.");
   }
   if (isProduction() && demoMode()) warnings.push("DEMO_MODE is on. Demo personas and the phone simulator are enabled. Set DEMO_MODE=false for a real deployment.");
 

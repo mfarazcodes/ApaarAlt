@@ -587,6 +587,11 @@ export async function resolveDispute(
   return result;
 }
 
+/** Opens a student's ledger if it does not exist yet. Used by the seed script. */
+export async function ensureLedger(store: Store, studentId: string): Promise<void> {
+  await mutate(store, studentId, { role: "SYSTEM", label: "Seed" }, () => undefined);
+}
+
 /* ── Helpers for other modules ───────────────────────────────────────── */
 
 export const allStudentIds = () => STUDENTS.map((s) => s.id);
