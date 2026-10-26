@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, ShieldAlert } from "lucide-react";
+import { BadgeCheck, Download, ShieldAlert } from "lucide-react";
 import type { AuditEntry, AuditType, ChainHead, ChainVerification } from "@/lib/audit";
+import { auditToCsv } from "@/lib/auditCsv";
 import { api, errorText, formatDateTime } from "../portal/api";
+import { downloadCsv } from "../portal/csvDownload";
 import { Button, Card, ICON, Notice, Pill, SectionTitle } from "../portal/ui";
 
 interface AuditResponse {
@@ -107,6 +109,10 @@ export default function AuditTrail() {
             <Button size="sm" variant="danger" onClick={cutTail}>Try deleting the last entry</Button>
           </>
         )}
+        <Button size="sm" disabled={shown.length === 0 || Boolean(copy)} onClick={() => downloadCsv(`audit-log${filter === "ALL" ? "" : `-${filter.toLowerCase()}`}.csv`, auditToCsv(shown))}>
+          <Download width={16} height={16} className={ICON} />
+          Export as CSV
+        </Button>
         {chain && (
           <Pill tone={chain.valid ? "accent" : "red"}>
             {chain.valid ? <BadgeCheck width={16} height={16} className="h-3.5 w-3.5 shrink-0" /> : <ShieldAlert width={16} height={16} className="h-3.5 w-3.5 shrink-0" />}

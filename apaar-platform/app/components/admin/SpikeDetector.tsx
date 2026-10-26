@@ -3,23 +3,15 @@
 import { Download, TrendingUp } from "lucide-react";
 import { SAMPLE_ADMISSION_SERIES, SPIKE_DEFAULTS, detectAdmissionSpikes } from "@/lib/admissionSpike";
 import { toCsv } from "@/lib/csvExport";
+import { downloadCsv } from "../portal/csvDownload";
 import { Button, Card, ICON, Pill, SectionTitle } from "../portal/ui";
 
 const flags = detectAdmissionSpikes(SAMPLE_ADMISSION_SERIES);
 
-function download(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 /** Flags a programme whose latest day of admissions is far above its own recent average. */
 export default function SpikeDetector() {
   function exportFlags() {
-    download(
+    downloadCsv(
       "admission-spikes.csv",
       toCsv(
         flags.map((f) => ({ ...f, reasons: f.reasons.join(" | ") })),
