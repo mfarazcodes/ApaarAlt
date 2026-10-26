@@ -17,7 +17,7 @@ export const PERSONAS: Persona[] = [
   { id: "student-meera", role: "STUDENT", name: "Meera S. (age 16)", blurb: "A minor. Every grant needs her guardian's co-sign first.", home: "/student", studentId: "STU-MS" },
   { id: "guardian-meera", role: "GUARDIAN", name: "Sunita S. (Meera's mother)", blurb: "Co-signs, or withdraws, consent for Meera.", home: "/student", studentId: "STU-MS" },
   { id: "registrar", role: "REGISTRAR", name: "Registrar, Vindhya Institute", blurb: "Syncs marksheets, resolves name mismatches, handles disputes.", home: "/admin" },
-  { id: "aicte", role: "AICTE", name: "AICTE officer", blurb: "National compliance view and the audit trail. No student names.", home: "/admin" },
+  { id: "aicte", role: "AICTE", name: "AICTE officer", blurb: "National compliance view, flagged cases and the audit trail.", home: "/admin" },
   { id: "verifier-acme", role: "VERIFIER", name: "Acme Cloud HR", blurb: "Employer. Verifies credentials, asks students for consent.", home: "/employer", verifierId: "VRF-ACME" },
   { id: "verifier-finserve", role: "VERIFIER", name: "FinServe Bank HR", blurb: "A second employer, to show consent is per verifier.", home: "/employer", verifierId: "VRF-FINSERVE" },
 ];

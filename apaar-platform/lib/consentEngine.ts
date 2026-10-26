@@ -1,4 +1,4 @@
-import { appendAudit, type AuditActorRole, type AuditEntry, type AuditInput } from "./audit";
+import { appendAudit, type AuditActorRole, type AuditEntry, type AuditInput, type AuditType } from "./audit";
 import { HttpError } from "./errors";
 import { NS, type Store } from "./store/types";
 import { STUDENTS, apaarTokenFor, findStudent, isMinor, type StudentRecord } from "./students";
@@ -192,7 +192,7 @@ export async function getLedger(store: Store, studentId: string): Promise<Studen
   return toView(stored, s);
 }
 
-type Emit = (e: Omit<AuditInput, "type" | "subject" | "actorRole" | "actor">) => void;
+type Emit = (e: Omit<AuditInput, "type" | "subject" | "actorRole" | "actor"> & { type?: AuditType }) => void;
 
 /**
  * Runs one change against a student's ledger atomically, then appends the audit entries it produced.
@@ -536,10 +536,54 @@ export async function raiseDispute(
       status: "OPEN",
     };
     l.disputes.push(dispute);
-    emit({ action: "DISPUTE_RAISED", purposeModified: `dispute:${dispute.ticketId}:${dispute.field}`, detail: `Student disputes '${dispute.field}' and asks for correction (DPDP Act right to correction and grievance redressal).` });
+    emit({ type: "DISPUTE", action: "DISPUTE_RAISED", purposeModified: `dispute:${dispute.ticketId}:${dispute.field}`, detail: `Student disputes '${dispute.field}' and asks for correction (DPDP Act right to correction and grievance redressal).` });
     return dispute;
   });
   return { ledger: await getLedger(store, studentId), dispute: result };
+}
+
+export interface DisputeRow extends DataDispute {
+  studentId: string;
+  studentName: string;
+  studentRoll: string;
+  /** View-only: the acknowledgement deadline has passed and the ticket is still open. */
+  overdue: boolean;
+}
+
+/** Every dispute across students, newest first. Read-only. For the registrar's inbox. */
+export async function listAllDisputes(store: Store): Promise<DisputeRow[]> {
+  const rows: DisputeRow[] = [];
+  const now = Date.now();
+  for (const s of STUDENTS) {
+    const l = await getLedger(store, s.id);
+    for (const d of l.disputes) {
+      rows.push({ ...d, studentId: s.id, studentName: s.name, studentRoll: s.roll, overdue: d.status === "OPEN" && new Date(d.acknowledgeBy).getTime() < now });
+    }
+  }
+  return rows.sort((a, b) => b.raisedAt.localeCompare(a.raisedAt));
+}
+
+/** The registrar closes a ticket with a written reason. The student sees the outcome in their wallet. */
+export async function resolveDispute(
+  store: Store,
+  studentId: string,
+  ticketId: string,
+  decision: "RESOLVED" | "REJECTED",
+  resolution: string,
+  actor: Actor
+): Promise<DataDispute> {
+  const { result } = await mutate(store, studentId, actor, (l, _s, emit) => {
+    const d = l.disputes.find((x) => x.ticketId === ticketId);
+    if (!d) throw new HttpError(404, `No dispute ${ticketId}.`);
+    if (d.status !== "OPEN") throw new HttpError(409, `Dispute ${ticketId} is already ${d.status.toLowerCase()}.`);
+    d.status = decision;
+    d.resolution = resolution.trim();
+    d.resolvedAt = new Date().toISOString();
+    d.resolvedBy = actor.label;
+    emit({ type: "DISPUTE", action: `DISPUTE_${decision}`, purposeModified: `dispute:${d.ticketId}:${d.field}`, newValue: decision === "RESOLVED", detail: `${actor.label} ${decision === "RESOLVED" ? "resolved" : "rejected"} the dispute about '${d.field}'. Reason: ${d.resolution}` });
+    return d;
+  });
+  return result;
 }
 
 /* ── Helpers for other modules ───────────────────────────────────────── */

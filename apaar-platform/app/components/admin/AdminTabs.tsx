@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Tabs } from "../portal/ui";
 import AuditTrail from "./AuditTrail";
 import CollisionDetector from "./CollisionDetector";
+import DisputeInbox from "./DisputeInbox";
 import EarlyWarning from "./EarlyWarning";
 import FuzzyQueue from "./FuzzyQueue";
 import IncidentClock from "./IncidentClock";
@@ -11,6 +12,7 @@ import IntakeTracker from "./IntakeTracker";
 import Leaderboard from "./Leaderboard";
 import MarksheetUploader from "./MarksheetUploader";
 import RetryQueue from "./RetryQueue";
+import SpikeDetector from "./SpikeDetector";
 
 type Mode = "erp" | "aicte";
 
@@ -43,6 +45,7 @@ export default function AdminTabs({ canUseCollegeConsole }: { canUseCollegeConso
               <IntakeTracker refreshKey={syncVersion} />
             </div>
           </div>
+          <DisputeInbox />
           <EarlyWarning />
         </div>
       ) : (
@@ -51,6 +54,7 @@ export default function AdminTabs({ canUseCollegeConsole }: { canUseCollegeConso
             <Leaderboard />
             <CollisionDetector />
           </div>
+          <SpikeDetector />
           <AuditTrail />
           <IncidentClock />
         </div>

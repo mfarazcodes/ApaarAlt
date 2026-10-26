@@ -1,5 +1,6 @@
 import PortalShell from "../components/portal/PortalShell";
 import OfflineSupport from "../components/employer/OfflineSupport";
+import ApiAccess from "../components/employer/ApiAccess";
 import SmartVerifier from "../components/employer/SmartVerifier";
 
 export default function EmployerPage() {
@@ -11,6 +12,9 @@ export default function EmployerPage() {
     >
       <OfflineSupport />
       <SmartVerifier />
+      <div className="mt-6">
+        <ApiAccess />
+      </div>
     </PortalShell>
   );
 }

@@ -34,7 +34,7 @@ export interface ConfigReport {
 export function configReport(): ConfigReport {
   const has = (n: string) => Boolean(process.env[n]);
   const required = { VAULT_PEPPER: has("VAULT_PEPPER"), SESSION_SECRET: has("SESSION_SECRET"), ISSUER_PRIVATE_KEY_PEM: has("ISSUER_PRIVATE_KEY_PEM") };
-  const recommended = { DATABASE_URL: has("DATABASE_URL"), CRON_SECRET: has("CRON_SECRET") };
+  const recommended = { DATABASE_URL: has("DATABASE_URL") };
 
   const missing = isProduction() ? Object.entries(required).filter(([, ok]) => !ok).map(([k]) => k) : [];
   const warnings: string[] = [];
