@@ -1,10 +1,22 @@
-import PortalStub from "../components/PortalStub";
+import ConsentWallet from "../components/student/ConsentWallet";
+import DigitalTwinTimeline from "../components/student/DigitalTwinTimeline";
+import NepForecaster from "../components/student/NepForecaster";
+import SkillGapMap from "../components/student/SkillGapMap";
+import PortalShell from "../components/portal/PortalShell";
 
 export default function StudentPage() {
   return (
-    <PortalStub
-      title="Student Digital Twin"
-      blurb="Semester timeline, credit forecaster and DPDP Consent Wallet. This portal is coming next."
-    />
+    <PortalShell
+      active="/student"
+      title="Your academic digital twin"
+      subtitle="One living record of subjects, credits, internships and certificates, with a forecast for what to take next and a wallet that keeps you in control of who sees it."
+    >
+      <div className="space-y-6">
+        <DigitalTwinTimeline />
+        <NepForecaster />
+        <SkillGapMap />
+        <ConsentWallet />
+      </div>
+    </PortalShell>
   );
 }

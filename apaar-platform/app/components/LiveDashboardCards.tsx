@@ -14,7 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 
-const ICON = "h-4 w-4 shrink-0";
+import { ICON, Toggle } from "./portal/ui";
 
 /* ── shared bits ─────────────────────────────────────────────────────── */
 
@@ -31,35 +31,6 @@ function Card({
     >
       {children}
     </article>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-        checked ? "bg-accent" : "bg-white/20"
-      }`}
-    >
-      <span
-        className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-4" : ""
-        }`}
-      />
-    </button>
   );
 }
 

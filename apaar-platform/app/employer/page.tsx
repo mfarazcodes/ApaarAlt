@@ -1,10 +1,14 @@
-import PortalStub from "../components/PortalStub";
+import PortalShell from "../components/portal/PortalShell";
+import SmartVerifier from "../components/employer/SmartVerifier";
 
 export default function EmployerPage() {
   return (
-    <PortalStub
-      title="Smart QR Verify"
-      blurb="Consent-gated, offline-capable credential verification. This portal is coming next."
-    />
+    <PortalShell
+      active="/employer"
+      title="Verify a degree without seeing a marksheet"
+      subtitle="Scan a Smart QR or look up an APAAR ID. You get live status and the yes-or-no claims the student allowed, with every ID number redacted."
+    >
+      <SmartVerifier />
+    </PortalShell>
   );
 }
