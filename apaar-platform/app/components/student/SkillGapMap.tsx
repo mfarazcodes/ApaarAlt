@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Circle, CircleDashed, Plus } from "lucide-react";
 import { GAP_SUGGESTIONS, ROLES, assessReadiness, type SkillStatus } from "@/lib/skillMap";
-import { TWIN, twinTotals, type TwinSemester } from "@/lib/studentData";
+import { twinFor, twinTotals, type TwinSemester } from "@/lib/studentData";
 import { Button, Card, Eyebrow, ICON, Pill, ProgressBar, SectionTitle, Tabs } from "../portal/ui";
 
 const STATUS_STYLE: Record<SkillStatus, { tone: "accent" | "blue" | "neutral"; label: string }> = {
@@ -37,10 +37,11 @@ function Ring({ score }: { score: number }) {
   );
 }
 
-export default function SkillGapMap() {
+export default function SkillGapMap({ studentId }: { studentId: string }) {
+  const TWIN = useMemo(() => twinFor(studentId) ?? [], [studentId]);
   const [roleId, setRoleId] = useState(ROLES[0].id);
   const [plan, setPlan] = useState<string[]>([]);
-  const totals = twinTotals();
+  const totals = twinTotals(TWIN);
   const internships = TWIN.flatMap((s) => s.internships).length;
 
   const role = ROLES.find((r) => r.id === roleId) ?? ROLES[0];
@@ -58,7 +59,7 @@ export default function SkillGapMap() {
       backlogs: [],
     };
     return [...TWIN, extra];
-  }, [plan]);
+  }, [plan, TWIN]);
 
   const result = assessReadiness(role, twin, totals.cgpa, internships);
 

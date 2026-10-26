@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Lock, Plus } from "lucide-react";
 import type { CreditForecast, NepExitResult } from "@/lib/nadSyncEngine";
-import { PROGRAM_TOTAL_CREDITS, creditsThroughSemester, projectedCreditsThrough, twinTotals } from "@/lib/studentData";
+import { PROGRAM_TOTAL_CREDITS, creditsThroughSemester, projectedCreditsThrough, twinFor, twinTotals } from "@/lib/studentData";
 import { api, errorText } from "../portal/api";
 import { Button, Card, Eyebrow, ICON, Notice, Pill, ProgressBar, SectionTitle, Toggle } from "../portal/ui";
 
-export default function NepForecaster() {
-  const totals = twinTotals();
+export default function NepForecaster({ studentId }: { studentId: string }) {
+  const twin = twinFor(studentId) ?? [];
+  const totals = twinTotals(twin);
   const [exitAfter, setExitAfter] = useState(totals.completedThrough);
   const [vocational, setVocational] = useState(true);
   const [planSwayam, setPlanSwayam] = useState(0);
@@ -16,8 +17,8 @@ export default function NepForecaster() {
   const [forecast, setForecast] = useState<CreditForecast | null>(null);
   const [error, setError] = useState("");
 
-  const earnedAtExit = creditsThroughSemester(exitAfter);
-  const projectedAtExit = projectedCreditsThrough(exitAfter);
+  const earnedAtExit = creditsThroughSemester(exitAfter, twin);
+  const projectedAtExit = projectedCreditsThrough(exitAfter, twin);
   const isProjection = projectedAtExit > earnedAtExit;
   const [projection, setProjection] = useState<NepExitResult | null>(null);
 

@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { Award, Briefcase, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
-import { PROGRAM_TOTAL_CREDITS, STUDENT_PROFILE, TWIN, semesterCreditsEarned, semesterSgpa, twinTotals } from "@/lib/studentData";
+import { PROGRAM_TOTAL_CREDITS, profileFor, semesterCreditsEarned, semesterSgpa, twinFor, twinTotals } from "@/lib/studentData";
 import { Card, Eyebrow, ICON, Pill, ProgressBar, SectionTitle } from "../portal/ui";
 
 const GRADE_TONE = (g: string) => (g === "F" ? "red" : g === "O" || g === "A+" ? "accent" : "neutral");
 
-export default function DigitalTwinTimeline() {
-  const totals = twinTotals();
+export default function DigitalTwinTimeline({ studentId }: { studentId: string }) {
+  const TWIN = twinFor(studentId) ?? [];
+  const profile = profileFor(studentId);
+  const totals = twinTotals(TWIN);
   const [selected, setSelected] = useState(totals.completedThrough);
   const sem = TWIN.find((s) => s.semester === selected) ?? TWIN[0];
   const openBacklogs = TWIN.flatMap((s) => s.backlogs).filter((b) => !b.clearedInSemester).length;
@@ -18,7 +20,7 @@ export default function DigitalTwinTimeline() {
       <SectionTitle
         eyebrow="Academic Digital Twin"
         title="Semester-by-semester timeline"
-        hint={`${STUDENT_PROFILE.program}. Pick a semester to see subjects, credits, internships, certificates and backlogs.`}
+        hint={`${profile?.program ?? "Your programme"}. Pick a semester to see subjects, credits, internships, certificates and backlogs.`}
       />
 
       <div className="grid gap-3 sm:grid-cols-4">

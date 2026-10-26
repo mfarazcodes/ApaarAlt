@@ -13,11 +13,16 @@ export interface StudentRecord {
   dob: string;
   guardianName: string;
   demoApaarId: string;
+  /** The sample starts already opted out of APAAR (NOGEN), so that state can be shown. */
+  startsOptedOut?: boolean;
 }
 
 export const STUDENTS: StudentRecord[] = [
   { id: "STU-RKV", name: "Rahul K.V.", roll: "2023-CS-041", dob: "2004-05-14", guardianName: "K. Satyanarayana", demoApaarId: "948120416672" },
   { id: "STU-MS", name: "Meera S.", roll: "2025-CS-118", dob: "2010-03-02", guardianName: "Sunita S.", demoApaarId: "731855209044" },
+  { id: "STU-AB", name: "Ananya Banerjee", roll: "2023-CS-007", dob: "2004-12-09", guardianName: "Subhash Banerjee", demoApaarId: "612744901825" },
+  { id: "STU-IQ", name: "Imran Q.", roll: "2023-CS-066", dob: "2003-08-21", guardianName: "Abdul Q.", demoApaarId: "385920174613", startsOptedOut: true },
+  { id: "STU-PL", name: "Priya L.", roll: "2023-CS-093", dob: "2005-01-17", guardianName: "Lakshmi N.", demoApaarId: "209174638502" },
 ];
 
 export const findStudent = (id: string) => STUDENTS.find((s) => s.id === id);

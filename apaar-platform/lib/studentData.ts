@@ -238,3 +238,88 @@ export function projectedCreditsThrough(n: number, twin: TwinSemester[] = TWIN):
 }
 
 export { earnedIn as semesterCreditsEarned };
+
+/* ── Several sample students ─────────────────────────────────────────────
+ * Each one is derived from the base record (Rahul) with a different story, so the portals have
+ * real variety to show: a strong record, an open backlog, a large credit shortfall.
+ * All fictional. */
+
+export interface StudentProfile {
+  label: string;
+  roll: string;
+  program: string;
+  institution: string;
+  story: string;
+}
+
+interface TwinSpec {
+  /** Moves every grade up (+) or down (-) the ladder. A failed grade stays failed. */
+  gradeShift: number;
+  /** none: no failed course. open: failed and not yet retaken. base: keep the base record's backlog, cleared in Sem 5. */
+  backlog: "base" | "none" | "open";
+  /** Credits the curriculum schedules for semesters 7 and 8. */
+  planned: [number, number];
+  noSwayam?: boolean;
+}
+
+const LADDER: TwinCourse["grade"][] = ["P", "C", "B", "B+", "A", "A+", "O"];
+const shiftGrade = (g: TwinCourse["grade"], n: number): TwinCourse["grade"] =>
+  g === "F" ? "F" : LADDER[Math.min(LADDER.length - 1, Math.max(0, LADDER.indexOf(g) + n))];
+
+function deriveTwin(base: TwinSemester[], spec: TwinSpec): TwinSemester[] {
+  return base.map((sem) => {
+    let courses: TwinCourse[] = sem.courses.map((c) => ({ ...c, grade: shiftGrade(c.grade, spec.gradeShift), swayam: spec.noSwayam ? undefined : c.swayam }));
+    let backlogs = sem.backlogs.map((b) => ({ ...b }));
+
+    if (spec.backlog === "none") {
+      courses = courses.filter((c) => c.code !== "CS305");
+      backlogs = [];
+    } else if (spec.backlog === "open") {
+      courses = courses.filter((c) => !c.backlogClearedFrom);
+      backlogs = backlogs.map((b) => ({ code: b.code, title: b.title, failedGrade: b.failedGrade }));
+    }
+
+    if (sem.status === "PLANNED") {
+      const total = sem.semester === 7 ? spec.planned[0] : spec.planned[1];
+      // Semester 7 keeps its two 3-credit courses; the project takes the rest. Semester 8 is the project alone.
+      courses = courses.map((c, i) => (sem.semester === 7 ? (i === 0 ? { ...c, credits: Math.max(1, total - 6) } : c) : { ...c, credits: total }));
+    }
+    return { ...sem, courses, backlogs };
+  });
+}
+
+const SPECS: Record<string, { profile: StudentProfile; spec: TwinSpec }> = {
+  "STU-RKV": {
+    profile: { label: "Rahul K.V.", roll: "2023-CS-041", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Solid record, one backlog cleared, 12 credits short on the current plan." },
+    spec: { gradeShift: 0, backlog: "base", planned: [12, 8] },
+  },
+  "STU-AB": {
+    profile: { label: "Ananya Banerjee", roll: "2023-CS-007", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Strong record, no backlogs, on track for 160 credits." },
+    spec: { gradeShift: 1, backlog: "none", planned: [20, 15] },
+  },
+  "STU-IQ": {
+    profile: { label: "Imran Q.", roll: "2023-CS-066", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "One failed course not yet retaken, and short on credits." },
+    spec: { gradeShift: -1, backlog: "open", planned: [12, 8], noSwayam: true },
+  },
+  "STU-PL": {
+    profile: { label: "Priya L.", roll: "2023-CS-093", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "A large credit shortfall: the plan leaves her well under 160." },
+    spec: { gradeShift: -2, backlog: "none", planned: [9, 6], noSwayam: true },
+  },
+};
+
+const twinCache = new Map<string, TwinSemester[]>();
+
+/** The academic twin for a student, or null when this student has none. */
+export function twinFor(studentId: string): TwinSemester[] | null {
+  const entry = SPECS[studentId];
+  if (!entry) return null;
+  let twin = twinCache.get(studentId);
+  if (!twin) {
+    twin = deriveTwin(TWIN, entry.spec);
+    twinCache.set(studentId, twin);
+  }
+  return twin;
+}
+
+export const profileFor = (studentId: string): StudentProfile | null => SPECS[studentId]?.profile ?? null;
+export const studentsWithTwin = () => Object.keys(SPECS);

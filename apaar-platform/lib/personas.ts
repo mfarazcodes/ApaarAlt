@@ -14,6 +14,9 @@ export interface Persona {
 
 export const PERSONAS: Persona[] = [
   { id: "student-rahul", role: "STUDENT", name: "Rahul K.V.", blurb: "Adult student. Digital twin, consent wallet, dispute portal.", home: "/student", studentId: "STU-RKV" },
+  { id: "student-ananya", role: "STUDENT", name: "Ananya Banerjee", blurb: "Strong record, on track. Also appears in two colleges' enrolment lists.", home: "/student", studentId: "STU-AB" },
+  { id: "student-imran", role: "STUDENT", name: "Imran Q.", blurb: "Has opted out of APAAR (NOGEN). Nothing of his is shared.", home: "/student", studentId: "STU-IQ" },
+  { id: "student-priya", role: "STUDENT", name: "Priya L.", blurb: "A large credit shortfall, to show the forecaster and SWAYAM cap.", home: "/student", studentId: "STU-PL" },
   { id: "student-meera", role: "STUDENT", name: "Meera S. (age 16)", blurb: "A minor. Every grant needs her guardian's co-sign first.", home: "/student", studentId: "STU-MS" },
   { id: "guardian-meera", role: "GUARDIAN", name: "Sunita S. (Meera's mother)", blurb: "Co-signs, or withdraws, consent for Meera.", home: "/student", studentId: "STU-MS" },
   { id: "registrar", role: "REGISTRAR", name: "Registrar, Vindhya Institute", blurb: "Syncs marksheets, resolves name mismatches, handles disputes.", home: "/admin" },

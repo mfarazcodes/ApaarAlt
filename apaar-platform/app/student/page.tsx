@@ -6,12 +6,15 @@ import SmartQrCreator from "../components/student/SmartQrCreator";
 import PortalShell from "../components/portal/PortalShell";
 import { Notice } from "../components/portal/ui";
 import { currentSession } from "@/lib/session-server";
+import { profileFor, twinFor } from "@/lib/studentData";
 
 export default async function StudentPage() {
   const session = await currentSession();
   const isGuardian = session?.role === "GUARDIAN";
-  // Only the main demo student has twin sample data. The guardian sees the consent side only.
-  const hasTwin = !isGuardian && session?.studentId === "STU-RKV";
+  // Students with an academic record get the twin. The guardian sees the consent side only.
+  const studentId = session?.studentId ?? "";
+  const hasTwin = !isGuardian && twinFor(studentId) !== null;
+  const profile = profileFor(studentId);
 
   return (
     <PortalShell
@@ -26,12 +29,13 @@ export default async function StudentPage() {
       <div className="space-y-6">
         {hasTwin ? (
           <>
-            <DigitalTwinTimeline />
-            <NepForecaster />
-            <SkillGapMap />
+            {profile && <p className="text-sm text-white/65">{profile.label} · {profile.roll} · {profile.story}</p>}
+            <DigitalTwinTimeline studentId={studentId} />
+            <NepForecaster studentId={studentId} />
+            <SkillGapMap studentId={studentId} />
           </>
         ) : (
-          !isGuardian && <Notice tone="blue">The academic twin sample data belongs to the main demo student (Rahul). This student has the consent wallet only.</Notice>
+          !isGuardian && <Notice tone="blue">This sample student has no academic record yet, so only the consent wallet is shown.</Notice>
         )}
         {hasTwin && <SmartQrCreator />}
         <ConsentWallet />

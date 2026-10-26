@@ -14,6 +14,7 @@ import {
 import { HttpError } from "./errors";
 import { NS, type Store } from "./store/types";
 import { STUDENTS, apaarTokenFor, studentForApaarId, studentForToken, type StudentRecord } from "./students";
+import { twinFor, twinTotals } from "./studentData";
 import { getIssuerKeySet, signSmartQr, verifySmartQr, type IssuerKey } from "./tokenization";
 
 export type { CredentialPayload, CredentialStatus, DisclosedClaim, MinimalClaims, VerificationCheck, VerificationResult } from "./credentialModel";
@@ -39,6 +40,7 @@ interface CredentialDoc {
   registry: Record<string, RegistryEntry>;
   qrs: Record<string, string>; // credential id -> signed QR
   claims: Record<string, MinimalClaims>; // the full claims behind each credential
+  current: Record<string, string>; // student id -> their current credential id
 }
 
 const ISSUER = "APAAR-Bridge-Issuer-01";
@@ -47,18 +49,19 @@ const CURRENT_CID = "CRED-RKV-2024-V2";
 const DEMO_HOLDER: StudentRecord = STUDENTS[0];
 
 function seed(): CredentialDoc {
-  const doc: CredentialDoc = { registry: {}, qrs: {}, claims: {} };
+  const doc: CredentialDoc = { registry: {}, qrs: {}, claims: {}, current: {} };
   const now = Date.now();
   const degree: MinimalClaims = { degreeVerified: true, degreeLabel: "B.Tech CSE Verified", cgpaAtLeast75: true, eoaActive: true, internshipCompleted: true };
 
-  const issue = (cid: string, ver: string, iat: Date, exp: Date, claims: MinimalClaims, entry: Omit<RegistryEntry, "cid">) => {
-    const payload: Omit<CredentialPayload, "kid"> = { v: 1, kind: "CREDENTIAL", cid, holder: apaarTokenFor(DEMO_HOLDER), ver, iat: iat.toISOString(), exp: exp.toISOString(), iss: ISSUER, claims };
+  const issue = (cid: string, ver: string, iat: Date, exp: Date, claims: MinimalClaims, entry: Omit<RegistryEntry, "cid">, holder: StudentRecord = DEMO_HOLDER) => {
+    const payload: Omit<CredentialPayload, "kid"> = { v: 1, kind: "CREDENTIAL", cid, holder: apaarTokenFor(holder), ver, iat: iat.toISOString(), exp: exp.toISOString(), iss: ISSUER, claims };
     doc.qrs[cid] = signSmartQr(payload);
     doc.registry[cid] = { cid, ...entry };
     doc.claims[cid] = claims;
   };
 
   issue(CURRENT_CID, "2.0", new Date(now - 20 * DAY_MS), new Date(now + 340 * DAY_MS), degree, { status: "ACTIVE" });
+  doc.current[DEMO_HOLDER.id] = CURRENT_CID;
   issue("CRED-RKV-2024-V1", "1.0", new Date(now - 120 * DAY_MS), new Date(now + 240 * DAY_MS), { ...degree, cgpaAtLeast75: false }, {
     status: "SUPERSEDED",
     supersededBy: CURRENT_CID,
@@ -67,6 +70,21 @@ function seed(): CredentialDoc {
   });
   issue("CRED-RKV-ERR-0007", "1.0", new Date(now - 60 * DAY_MS), new Date(now + 300 * DAY_MS), degree, { status: "REVOKED", reason: "Issued in error: wrong programme code" });
   issue("CRED-RKV-INT-2023", "1.0", new Date("2023-07-01T00:00:00Z"), new Date("2024-06-30T00:00:00Z"), { ...degree, degreeVerified: false, degreeLabel: "Internship certificate", cgpaAtLeast75: false }, { status: "ACTIVE" });
+  // Every other student with an academic record gets a current credential whose claims follow their own record.
+  for (const student of STUDENTS) {
+    const twin = twinFor(student.id);
+    if (!twin || student.id === DEMO_HOLDER.id) continue;
+    const cid = `CRED-${student.id.slice(4)}-2024-V1`;
+    const claims: MinimalClaims = {
+      degreeVerified: true,
+      degreeLabel: "B.Tech CSE Verified",
+      cgpaAtLeast75: twinTotals(twin).cgpa >= 7.5,
+      eoaActive: true,
+      internshipCompleted: twin.some((s) => s.internships.length > 0),
+    };
+    issue(cid, "1.0", new Date(now - 30 * DAY_MS), new Date(now + 330 * DAY_MS), claims, { status: "ACTIVE" }, student);
+    doc.current[student.id] = cid;
+  }
   return doc;
 }
 
@@ -95,6 +113,10 @@ export async function listSampleCredentials(store: Store): Promise<SampleCredent
     ["CRED-RKV-ERR-0007", "Credential issued in error", "REVOKED"],
     ["CRED-RKV-INT-2023", "Internship certificate (lapsed)", "EXPIRED"],
   ];
+  for (const student of STUDENTS) {
+    const cid = doc.current[student.id];
+    if (cid && student.id !== DEMO_HOLDER.id) rows.push([cid, `${student.name}'s current credential`, "AUTHENTIC"]);
+  }
   return rows.map(([cid, label, expected]) => ({ cid, label, expected, qr: doc.qrs[cid] ?? "" }));
 }
 
@@ -115,27 +137,28 @@ export interface Presentation {
 export async function issuePresentation(store: Store, studentId: string, scopes: ShareScope[], days: number): Promise<Presentation> {
   const student = STUDENTS.find((s) => s.id === studentId);
   if (!student) throw new HttpError(404, "No such student.");
-  if (student.id !== DEMO_HOLDER.id) throw new HttpError(404, "No credential has been issued to this student yet.");
+  const doc = await credentials(store);
+  const parentCid = doc.current[studentId];
+  if (!parentCid) throw new HttpError(404, "No credential has been issued to this student yet.");
   await assertStudentCanShare(store, studentId);
 
-  const doc = await credentials(store);
-  const parent = doc.registry[CURRENT_CID];
+  const parent = doc.registry[parentCid];
   if (!parent || parent.status !== "ACTIVE") throw new HttpError(409, "The current credential is not active, so a QR cannot be created from it.");
 
-  const full = doc.claims[CURRENT_CID];
+  const full = doc.claims[parentCid];
   const claims = claimsForScopes(full, scopes);
   const now = Date.now();
-  const parentExp = new Date(JSON.parse(Buffer.from(doc.qrs[CURRENT_CID].split(".")[1], "base64url").toString()).exp).getTime();
+  const parentExp = new Date(JSON.parse(Buffer.from(doc.qrs[parentCid].split(".")[1], "base64url").toString()).exp).getTime();
   const exp = new Date(Math.min(now + days * DAY_MS, parentExp));
   const cid = `QR-${randomBytes(4).toString("hex").toUpperCase()}`;
 
   const payload: Omit<CredentialPayload, "kid"> = {
     v: 1,
     kind: "PRESENTATION",
-    parent: CURRENT_CID,
+    parent: parentCid,
     cid,
     holder: apaarTokenFor(student),
-    ver: "2.0",
+    ver: doc.registry[parentCid].supersededByVersion ?? (parentCid === CURRENT_CID ? "2.0" : "1.0"),
     iat: new Date(now).toISOString(),
     exp: exp.toISOString(),
     iss: ISSUER,
@@ -167,7 +190,7 @@ export async function verifyCredential(store: Store, input: VerifyInput): Promis
     }
     const holder = studentForApaarId(input.apaarId);
     if (!holder) return baseResult(mode, "NOT_FOUND", "No credential is registered for that APAAR ID.");
-    qr = holder.id === DEMO_HOLDER.id ? doc.qrs[CURRENT_CID] : undefined;
+    qr = doc.current[holder.id] ? doc.qrs[doc.current[holder.id]] : undefined;
     if (!qr) return baseResult(mode, "NOT_FOUND", "No credential has been issued to this student yet.");
   }
   if (!qr) return baseResult(mode, "NOT_FOUND", "Provide a Smart QR payload or an APAAR ID.");

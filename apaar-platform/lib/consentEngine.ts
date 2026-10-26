@@ -151,11 +151,12 @@ function student(id: string): StudentRecord {
 
 function freshLedger(s: StudentRecord): StoredLedger {
   const minor = isMinor(s.dob);
+  const optedOut = Boolean(s.startsOptedOut);
   return {
     studentId: s.id,
-    apaarStatus: "ACTIVE",
+    apaarStatus: optedOut ? "NOGEN_OPTED_OUT" : "ACTIVE",
     guardian: { coSign: minor ? "PENDING" : "NOT_REQUIRED", guardianName: s.guardianName },
-    purposes: { abcCreditSync: true, aicteEnrolmentCount: true, employerVerification: true, behavioralTracking: false },
+    purposes: { abcCreditSync: !optedOut, aicteEnrolmentCount: true, employerVerification: !optedOut, behavioralTracking: false },
     shares: [],
     requests: [],
     disputes: [],
@@ -211,7 +212,7 @@ async function mutate<R>(
 
   const result = await store.update<StoredLedger, R>(NS.consent, studentId, (cur) => {
     const l = cur ?? freshLedger(s);
-    if (!cur) emitAs(system)({ action: "LEDGER_CREATED", detail: "Consent ledger opened with the default purposes. Behavioural tracking is locked off." });
+    if (!cur) emitAs(system)({ action: "LEDGER_CREATED", detail: s.startsOptedOut ? "Consent ledger opened. This sample student starts opted out of APAAR (NOGEN), so nothing is shared. Behavioural tracking is locked off." : "Consent ledger opened with the default purposes. Behavioural tracking is locked off." });
 
     // Age can change the guardian requirement over time.
     const minor = isMinor(s.dob);
