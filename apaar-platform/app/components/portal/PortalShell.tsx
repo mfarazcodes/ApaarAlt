@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
+import { demoMode } from "@/lib/config";
+import { PAGE_ACCESS, ROLE_LABEL } from "@/lib/personas";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { ConfigBanner, SessionBar } from "./SessionBar";
 import ThemeSwitcher from "./ThemeSwitcher";
 
 const PORTALS = [
@@ -52,7 +57,7 @@ function Backdrop() {
   );
 }
 
-export default function PortalShell({
+export default async function PortalShell({
   active,
   title,
   subtitle,
@@ -63,6 +68,9 @@ export default function PortalShell({
   subtitle: string;
   children: ReactNode;
 }) {
+  const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  // A person only sees the portals their role can open.
+  const portals = session ? PORTALS.filter((p) => PAGE_ACCESS[p.href].includes(session.role)) : PORTALS;
   return (
     <div className="min-h-screen p-3 sm:p-5">
       <div className="relative mx-auto max-w-[1400px] overflow-hidden rounded-[28px] bg-deep text-white">
@@ -77,7 +85,7 @@ export default function PortalShell({
           </Link>
 
           <nav aria-label="Portals" className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
-            {PORTALS.map((p) => (
+            {portals.map((p) => (
               <Link
                 key={p.href}
                 href={p.href}
@@ -95,6 +103,13 @@ export default function PortalShell({
             <ThemeSwitcher variant="dark" />
           </div>
         </header>
+
+        {session && (
+          <div className="relative z-10 px-4 pt-4 sm:px-8">
+            <SessionBar name={session.name} roleLabel={ROLE_LABEL[session.role]} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
+          </div>
+        )}
+        <ConfigBanner />
 
         <div className="relative z-10 px-4 pb-16 pt-12 sm:px-8">
           <div className="mb-10 max-w-3xl">

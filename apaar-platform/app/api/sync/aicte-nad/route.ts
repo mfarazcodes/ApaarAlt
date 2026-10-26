@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { MAX_CSV_BYTES, MAX_CSV_ROWS, CsvLimitError, parseCsv, type RawRow } from "@/lib/csv";
+import { appendAudit, type AuditInput } from "@/lib/audit";
+import { CsvLimitError, MAX_CSV_BYTES, MAX_CSV_ROWS, parseCsv, type RawRow } from "@/lib/csv";
+import { actorOf, guard } from "@/lib/guard";
 import { HttpError, jsonError, parseWith, readJson } from "@/lib/http";
 import {
   SAMPLE_COLLEGES,
@@ -21,21 +23,21 @@ import {
   simulateNepExit,
   stripGovernmentIds,
   validateSwayamCap,
+  type CourseDiff,
   type InstitutionMeta,
   type NADStudentRecord,
   type PriorSummary,
   type ProgrammeIntake,
   type SyllabusTopic,
 } from "@/lib/nadSyncEngine";
-import { tokenizeDemographicId } from "@/lib/tokenization";
+import { NS, type Store } from "@/lib/store";
+import { tenantSalt, tokenizeDemographicId } from "@/lib/tokenization";
 
-/** Demo state kept on globalThis so dev hot-reloads do not wipe it. */
 interface SyncState {
   meta: InstitutionMeta;
   programmes: ProgrammeIntake[];
   students: NADStudentRecord[];
 }
-const g = globalThis as typeof globalThis & { __apaarSyncState?: SyncState };
 
 const PROGRAMME_BY_CODE: Record<string, { programme: string; program: string }> = {
   CS: { programme: "Computer Science", program: "B.Tech Computer Science & Engineering" },
@@ -46,13 +48,11 @@ const PROGRAMME_BY_CODE: Record<string, { programme: string; program: string }> 
 };
 
 const programmeFor = (roll: string) => PROGRAMME_BY_CODE[roll.split("-")[1] ?? ""] ?? { programme: "Other", program: "B.Tech" };
+const tokenFor = (roll: string) => tokenizeDemographicId(roll, "STUDENT_ROLL", tenantSalt()).vaultToken;
 
 function groupByRoll(rows: RawRow[]): Record<string, RawRow[]> {
   const grouped: Record<string, RawRow[]> = {};
-  for (const r of rows) {
-    const roll = pickField(r, "rollNumber") ?? "UNKNOWN-ROLL";
-    (grouped[roll] ??= []).push(r);
-  }
+  for (const r of rows) (grouped[pickField(r, "rollNumber") ?? "UNKNOWN-ROLL"] ??= []).push(r);
   return grouped;
 }
 
@@ -61,27 +61,21 @@ const SEED_PRIORS: Record<string, PriorSummary> = {
   "2023-ME-112": { creditsEarned: 78, creditsRegistered: 78, gradePoints: 78 * 8.4 },
 };
 
-function state(): SyncState {
-  if (g.__apaarSyncState) return g.__apaarSyncState;
-
-  const students: NADStudentRecord[] = [];
-  for (const [roll, rows] of Object.entries(groupByRoll(parseCsv(SAMPLE_MESSY_ERP_CSV).rows))) {
-    students.push(
-      processStudentSemesterRecord({
-        studentRoll: roll,
-        studentName: (pickField(rows[0], "studentName") ?? "Student").replace(/["']/g, ""),
-        abcAccountId: pickField(rows[0], "abcId") ?? "ABC-PENDING",
-        apaarToken: tokenizeDemographicId(roll, "STUDENT_ROLL", "NIST-DEMO").vaultToken,
-        program: programmeFor(roll).program,
-        semester: 5,
-        academicYear: "2024-25",
-        rows,
-        prior: SEED_PRIORS[roll] ?? null,
-      })
-    );
-  }
-
-  g.__apaarSyncState = {
+function seedState(): SyncState {
+  const students: NADStudentRecord[] = Object.entries(groupByRoll(parseCsv(SAMPLE_MESSY_ERP_CSV).rows)).map(([roll, rows]) =>
+    processStudentSemesterRecord({
+      studentRoll: roll,
+      studentName: (pickField(rows[0], "studentName") ?? "Student").replace(/["']/g, ""),
+      abcAccountId: pickField(rows[0], "abcId") ?? "ABC-PENDING",
+      apaarToken: tokenFor(roll),
+      program: programmeFor(roll).program,
+      semester: 5,
+      academicYear: "2024-25",
+      rows,
+      prior: SEED_PRIORS[roll] ?? null,
+    })
+  );
+  return {
     meta: {
       institutionCode: "AICTE-DEMO-0001",
       institutionName: "Vindhya Institute of Technology (sample data)",
@@ -98,7 +92,15 @@ function state(): SyncState {
     ],
     students,
   };
-  return g.__apaarSyncState;
+}
+
+async function readState(store: Store): Promise<SyncState> {
+  const existing = await store.get<SyncState>(NS.sync, "state");
+  if (existing) return existing;
+  return store.update<SyncState, SyncState>(NS.sync, "state", (cur) => {
+    const state = cur ?? seedState();
+    return { value: state, result: state };
+  });
 }
 
 const complianceOf = (s: SyncState) => calculateInstitutionCompliance(s.programmes, s.meta);
@@ -111,7 +113,7 @@ const sheetFields = {
   csvText: z.string().max(MAX_CSV_BYTES).optional(),
   rows: z.array(z.record(z.string(), z.unknown())).max(MAX_CSV_ROWS).optional(),
   semester: z.number().int().min(1).max(12).default(5),
-  academicYear: z.string().regex(/^d{4}-d{2}$/, "Academic year looks like 2024-25").optional(),
+  academicYear: z.string().regex(/^\d{4}-\d{2}$/, "Academic year looks like 2024-25").optional(),
   program: z.string().min(1).max(80).optional(),
   backlogRule: z.enum(["REPLACE_FAILED_ATTEMPT", "KEEP_ALL_ATTEMPTS"]).optional(),
 };
@@ -136,44 +138,55 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("SYNC"), acknowledgeIssues: z.boolean().default(false), ...sheetFields }),
 ]);
 
-export async function GET() {
-  const s = state();
-  return NextResponse.json({
-    success: true,
-    engine: "Unified AICTE-NAD Sync Engine v4.0",
-    compliance: complianceOf(s),
-    sampleMessyCsv: SAMPLE_MESSY_ERP_CSV,
-    sampleRevaluationCsv: SAMPLE_REVALUATION_CSV,
-    sampleProblemCsv: SAMPLE_PROBLEM_CSV,
-    syncedStudents: s.students,
-    leaderboard: SAMPLE_COLLEGES.map((c) => ({ ...c, ...computeComplianceScore(c) })).sort((a, b) => b.score - a.score),
-    diplomaSamples: Object.entries(SAMPLE_DIPLOMAS).map(([key, v]) => ({ key, label: v.label })),
-  });
+/** Calculators any signed-in role may use. Everything that reads or writes a college's data is registrar-only. */
+const CALCULATORS = new Set(["VALIDATE_SWAYAM", "NEP_EXIT", "FORECAST", "LATERAL_ENTRY"]);
+
+export async function GET(req: Request) {
+  try {
+    const { session, store } = await guard(req, { roles: ["REGISTRAR", "AICTE"], scope: "sync" });
+    const s = await readState(store);
+    const registrar = session!.role === "REGISTRAR";
+    return NextResponse.json({
+      success: true,
+      engine: "Unified AICTE-NAD Sync Engine v4.1",
+      compliance: complianceOf(s),
+      leaderboard: SAMPLE_COLLEGES.map((c) => ({ ...c, ...computeComplianceScore(c) })).sort((a, b) => b.score - a.score),
+      // Student-level data and the sample sheets are for the registrar only.
+      ...(registrar
+        ? {
+            sampleMessyCsv: SAMPLE_MESSY_ERP_CSV,
+            sampleRevaluationCsv: SAMPLE_REVALUATION_CSV,
+            sampleProblemCsv: SAMPLE_PROBLEM_CSV,
+            syncedStudents: s.students,
+            diplomaSamples: Object.entries(SAMPLE_DIPLOMAS).map(([key, v]) => ({ key, label: v.label })),
+          }
+        : {}),
+    });
+  } catch (err) {
+    return jsonError(err, "Failed to read sync state");
+  }
 }
 
 export async function POST(req: Request) {
   try {
+    const { session, store } = await guard(req, { roles: ["STUDENT", "REGISTRAR", "AICTE"], scope: "sync" });
     const raw = (await readJson(req, MAX_CSV_BYTES + 4096)) as Record<string, unknown>;
     const body = parseWith(Body, { action: "SYNC", ...raw });
+
+    if (!CALCULATORS.has(body.action) && session!.role !== "REGISTRAR") {
+      throw new HttpError(403, "Only a registrar can upload or sync marksheets.");
+    }
 
     switch (body.action) {
       case "VALIDATE_SWAYAM":
         return NextResponse.json({ success: true, result: validateSwayamCap(body.totalCredits, body.swayamCredits) });
-
       case "NEP_EXIT":
         return NextResponse.json({ success: true, result: simulateNepExit(body.earnedCredits, body.vocationalCredits) });
-
       case "FORECAST":
         return NextResponse.json({
           success: true,
-          result: forecastCredits({
-            earnedCredits: body.earnedCredits,
-            totalCredits: body.totalCredits,
-            scheduledRemaining: body.scheduledRemaining,
-            swayamUsed: body.swayamUsed,
-          }),
+          result: forecastCredits({ earnedCredits: body.earnedCredits, totalCredits: body.totalCredits, scheduledRemaining: body.scheduledRemaining, swayamUsed: body.swayamUsed }),
         });
-
       case "LATERAL_ENTRY": {
         const prior: SyllabusTopic[] | undefined = body.topics ?? (body.diploma ? SAMPLE_DIPLOMAS[body.diploma]?.syllabus : undefined);
         if (!prior) throw new HttpError(400, "Provide 'topics' or a known 'diploma' key.");
@@ -196,62 +209,66 @@ export async function POST(req: Request) {
     const rows = parsed.rows.map(stripGovernmentIds);
 
     if (body.action === "MAP_SCHEMA") {
-      return NextResponse.json({
-        success: true,
-        mapping,
-        parserWarnings: parsed.warnings,
-        preview: rows.slice(0, 5).map((r) => normalizeCourseRow(r)),
-        rowCount: rows.length,
-      });
+      return NextResponse.json({ success: true, mapping, parserWarnings: parsed.warnings, preview: rows.slice(0, 5).map((r) => normalizeCourseRow(r)), rowCount: rows.length });
     }
-
-    if (mapping.missingRequired.length > 0) {
-      throw new HttpError(400, `Cannot map this sheet to NAD. Missing: ${mapping.missingRequired.join(", ")}.`);
-    }
+    if (mapping.missingRequired.length > 0) throw new HttpError(400, `Cannot map this sheet to NAD. Missing: ${mapping.missingRequired.join(", ")}.`);
 
     const dryRun = body.action === "PREVIEW";
-    const s = state();
-    const academicYear = body.academicYear ?? s.meta.academicYear;
+    const actor = actorOf(session!);
+    const grouped = Object.entries(groupByRoll(rows));
 
-    const results = Object.entries(groupByRoll(rows)).map(([roll, studentRows]) => {
-      const first = studentRows[0];
-      const existing = s.students.find((x) => x.studentRoll === roll);
-      const record = processStudentSemesterRecord({
-        studentRoll: roll,
-        studentName: (pickField(first, "studentName") ?? "Unnamed student").replace(/["']/g, ""),
-        abcAccountId: pickField(first, "abcId") ?? "ABC-PENDING",
-        apaarToken: existing?.apaarToken ?? tokenizeDemographicId(roll, "STUDENT_ROLL", "NIST-DEMO").vaultToken,
-        program: body.program ?? existing?.program ?? programmeFor(roll).program,
-        semester: body.semester,
-        academicYear,
-        rows: studentRows,
-        // A student new to NAD has no prior record. Nothing is invented.
-        prior: existing ? existing.priorSummary : null,
-        existingHistory: existing?.history,
-        backlogRule: body.backlogRule ?? existing?.backlogRule,
+    // One pass builds the records. For SYNC it runs inside the update, so it reads and writes the same state atomically.
+    const build = (s: SyncState) =>
+      grouped.map(([roll, studentRows]) => {
+        const first = studentRows[0];
+        const existing = s.students.find((x) => x.studentRoll === roll);
+        const record = processStudentSemesterRecord({
+          studentRoll: roll,
+          studentName: (pickField(first, "studentName") ?? "Unnamed student").replace(/["']/g, ""),
+          abcAccountId: pickField(first, "abcId") ?? "ABC-PENDING",
+          apaarToken: existing?.apaarToken ?? tokenFor(roll),
+          program: body.program ?? existing?.program ?? programmeFor(roll).program,
+          semester: body.semester,
+          academicYear: body.academicYear ?? s.meta.academicYear,
+          rows: studentRows,
+          // A student new to NAD has no prior record. Nothing is invented.
+          prior: existing ? existing.priorSummary : null,
+          existingHistory: existing?.history,
+          backlogRule: body.backlogRule ?? existing?.backlogRule,
+        });
+        const sameSemester = existing?.semester === body.semester;
+        return { record, diff: diffCourses(sameSemester && existing ? existing.courses : [], record.courses), isNew: !existing };
       });
-      const sameSemester = existing?.semester === body.semester;
-      return {
-        record,
-        diff: diffCourses(sameSemester && existing ? existing.courses : [], record.courses),
-        isNew: !existing,
-      };
-    });
 
-    const blockingIssues = results.flatMap((r) =>
-      r.record.rowIssues.filter((i) => i.excluded).map((i) => ({ studentRoll: r.record.studentRoll, ...i }))
-    );
-    const acknowledged = body.action === "SYNC" && body.acknowledgeIssues;
+    type Built = ReturnType<typeof build>;
+    const blockingOf = (results: Built) =>
+      results.flatMap((r) => r.record.rowIssues.filter((i) => i.excluded).map((i) => ({ studentRoll: r.record.studentRoll, ...i })));
 
-    if (body.action === "SYNC" && blockingIssues.length > 0 && !acknowledged) {
-      throw new HttpError(
-        400,
-        `${blockingIssues.length} row(s) cannot be graded or credited. Fix the sheet, or confirm to sync the rest and leave these out.`,
-        { blockingIssues }
-      );
+    if (dryRun) {
+      const s = await readState(store);
+      const results = build(s);
+      return NextResponse.json({
+        success: true,
+        dryRun: true,
+        message: `Previewed ${rows.length} ERP rows for ${results.length} students. Nothing was written to NAD.`,
+        mapping,
+        parserWarnings: parsed.warnings,
+        blockingIssues: blockingOf(results),
+        results: results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
+        updatedCompliance: complianceOf(s),
+      });
     }
 
-    if (!dryRun) {
+    const acknowledged = body.action === "SYNC" && body.acknowledgeIssues;
+    await readState(store); // make sure the seed exists before the atomic update
+
+    const outcome = await store.update<SyncState, { results: Built; blocking: ReturnType<typeof blockingOf>; state: SyncState; written: boolean }>(NS.sync, "state", (cur) => {
+      const s = cur ?? seedState();
+      const results = build(s);
+      const blocking = blockingOf(results);
+      // Refuse before changing anything. The registrar must confirm that the excluded rows are intentionally left out.
+      if (blocking.length > 0 && !acknowledged) return { value: undefined, result: { results, blocking, state: s, written: false } };
+
       for (const { record, isNew } of results) {
         const idx = s.students.findIndex((x) => x.studentRoll === record.studentRoll);
         if (idx >= 0) s.students[idx] = record;
@@ -272,19 +289,39 @@ export async function POST(req: Request) {
           }
         }
       }
+      return { value: s, result: { results, blocking, state: s, written: true } };
+    });
+
+    if (!outcome.written) {
+      throw new HttpError(400, `${outcome.blocking.length} row(s) cannot be graded or credited. Fix the sheet, or confirm to sync the rest and leave these out.`, { blockingIssues: outcome.blocking });
+    }
+
+    // Audit: one entry per student for the sync, and one per changed grade so a revaluation is traceable.
+    for (const { record, diff, isNew } of outcome.results) {
+      const changed = diff.filter((d: CourseDiff) => d.change !== "UNCHANGED");
+      const base: Pick<AuditInput, "actorRole" | "actor" | "subject"> = { actorRole: actor.role, actor: actor.label, subject: record.apaarToken };
+      await appendAudit(store, {
+        ...base,
+        type: "NAD_SYNC",
+        action: "NAD_SYNC",
+        detail: `Semester ${record.semester} synced: ${record.courses.length} courses (${changed.length} changed), ${record.rowIssues.filter((r) => r.excluded).length} row(s) left out${isNew ? ", new to NAD" : ""}. SGPA ${record.sgpa ?? "n/a"}.`,
+      });
+      for (const d of diff) {
+        if (d.change === "CHANGED" && d.before && d.after && d.before.letterGrade !== d.after.letterGrade) {
+          await appendAudit(store, { ...base, type: "GRADE_CHANGE", action: "GRADE_CHANGE", detail: `${d.courseCode}: ${d.before.letterGrade} to ${d.after.letterGrade} in semester ${record.semester}.` });
+        }
+      }
     }
 
     return NextResponse.json({
       success: true,
-      dryRun,
-      message: dryRun
-        ? `Previewed ${rows.length} ERP rows for ${results.length} students. Nothing was written to NAD.`
-        : `Mapped ${rows.length} ERP rows for ${results.length} students into the NAD credit schema.${blockingIssues.length ? ` ${blockingIssues.length} row(s) were left out.` : ""}`,
+      dryRun: false,
+      message: `Mapped ${rows.length} ERP rows for ${outcome.results.length} students into the NAD credit schema.${outcome.blocking.length ? ` ${outcome.blocking.length} row(s) were left out.` : ""}`,
       mapping,
       parserWarnings: parsed.warnings,
-      blockingIssues,
-      results: results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
-      updatedCompliance: complianceOf(s),
+      blockingIssues: outcome.blocking,
+      results: outcome.results.map((r) => ({ student: r.record, diff: r.diff, isNew: r.isNew })),
+      updatedCompliance: complianceOf(outcome.state),
     });
   } catch (err) {
     return jsonError(err, "Failed to execute AICTE-NAD sync");

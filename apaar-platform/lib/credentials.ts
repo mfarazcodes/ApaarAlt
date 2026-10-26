@@ -1,21 +1,17 @@
-import { getActiveShare, getConsentLedger, type ShareScope } from "./consentEngine";
-import { signSmartQr, tokenizeDemographicId, verifySmartQr } from "./tokenization";
+import { getActiveShare, getLedger, type ShareScope } from "./consentEngine";
+import { NS, type Store } from "./store/types";
+import { STUDENTS, apaarTokenFor, studentForApaarId, studentForToken, type StudentRecord } from "./students";
+import { getIssuerKeySet, signSmartQr, verifySmartQr, type IssuerKey } from "./tokenization";
 
 /**
  * Smart Credential issuing and verification.
  *
  * - Credentials are Ed25519-signed QR payloads that carry boolean claims only, never marksheets or ID numbers.
- * - OFFLINE verification checks the signature and expiry and nothing else. It cannot see revocation.
- * - ONLINE verification also reads the revocation registry and requires an active, unexpired student consent share.
+ * - Offline verification checks the signature and expiry and nothing else. It cannot see revocation.
+ * - Online verification also reads the revocation registry and requires an active, unexpired student consent share.
  */
 
-export type CredentialStatus =
-  | "AUTHENTIC"
-  | "REVOKED"
-  | "SUPERSEDED"
-  | "EXPIRED"
-  | "INVALID_SIGNATURE"
-  | "NOT_FOUND";
+export type CredentialStatus = "AUTHENTIC" | "REVOKED" | "SUPERSEDED" | "EXPIRED" | "INVALID_SIGNATURE" | "NOT_FOUND";
 
 export interface MinimalClaims {
   degreeVerified: boolean;
@@ -28,6 +24,7 @@ export interface MinimalClaims {
 export interface CredentialPayload {
   v: 1;
   cid: string;
+  kid?: string;
   holder: string; // vault token
   ver: string;
   iat: string;
@@ -42,6 +39,11 @@ interface RegistryEntry {
   supersededBy?: string;
   supersededByVersion?: string;
   reason?: string;
+}
+
+interface CredentialDoc {
+  registry: Record<string, RegistryEntry>;
+  qrs: Record<string, string>; // credential id -> signed QR
 }
 
 export interface DisclosedClaim {
@@ -67,6 +69,7 @@ export interface VerificationResult {
   expiresAt?: string;
   supersededBy?: string;
   identity: string;
+  /** A vault token. The verifier uses it to ask this student for consent. It is not an ID number. */
   holderToken?: string;
   claims: DisclosedClaim[] | null;
   consent: {
@@ -81,84 +84,41 @@ export interface VerificationResult {
 
 const ISSUER = "APAAR-Bridge-Issuer-01";
 const DAY_MS = 86_400_000;
-
 const REDACTED = "[Aadhaar Redacted]";
+const CURRENT_CID = "CRED-RKV-2024-V2";
+const DEMO_HOLDER: StudentRecord = STUDENTS[0];
 
-type CredentialStore = {
-  registry: Map<string, RegistryEntry>;
-  qrs: Map<string, string>; // credential id -> signed QR
-};
-const g = globalThis as typeof globalThis & { __apaarCredentials?: CredentialStore };
-
-function demoHolderToken(): string {
-  return getConsentLedger().apaarToken;
-}
-
-function issue(
-  store: CredentialStore,
-  opts: { cid: string; ver: string; iat: Date; exp: Date; claims: MinimalClaims; entry: Omit<RegistryEntry, "cid"> }
-): void {
-  const payload: CredentialPayload = {
-    v: 1,
-    cid: opts.cid,
-    holder: demoHolderToken(),
-    ver: opts.ver,
-    iat: opts.iat.toISOString(),
-    exp: opts.exp.toISOString(),
-    iss: ISSUER,
-    claims: opts.claims,
-  };
-  store.qrs.set(opts.cid, signSmartQr(payload));
-  store.registry.set(opts.cid, { cid: opts.cid, ...opts.entry });
-}
-
-function credentials(): CredentialStore {
-  if (g.__apaarCredentials) return g.__apaarCredentials;
-  const store: CredentialStore = { registry: new Map(), qrs: new Map() };
-  g.__apaarCredentials = store;
-
+function seed(): CredentialDoc {
+  const doc: CredentialDoc = { registry: {}, qrs: {} };
   const now = Date.now();
-  const degree: MinimalClaims = {
-    degreeVerified: true,
-    degreeLabel: "B.Tech CSE Verified",
-    cgpaAtLeast75: true,
-    eoaActive: true,
-    internshipCompleted: true,
+  const degree: MinimalClaims = { degreeVerified: true, degreeLabel: "B.Tech CSE Verified", cgpaAtLeast75: true, eoaActive: true, internshipCompleted: true };
+
+  const issue = (cid: string, ver: string, iat: Date, exp: Date, claims: MinimalClaims, entry: Omit<RegistryEntry, "cid">) => {
+    const payload: Omit<CredentialPayload, "kid"> = { v: 1, cid, holder: apaarTokenFor(DEMO_HOLDER), ver, iat: iat.toISOString(), exp: exp.toISOString(), iss: ISSUER, claims };
+    doc.qrs[cid] = signSmartQr(payload);
+    doc.registry[cid] = { cid, ...entry };
   };
 
-  issue(store, {
-    cid: "CRED-RKV-2024-V2",
-    ver: "2.0",
-    iat: new Date(now - 20 * DAY_MS),
-    exp: new Date(now + 340 * DAY_MS),
-    claims: degree,
-    entry: { status: "ACTIVE" },
+  issue(CURRENT_CID, "2.0", new Date(now - 20 * DAY_MS), new Date(now + 340 * DAY_MS), degree, { status: "ACTIVE" });
+  issue("CRED-RKV-2024-V1", "1.0", new Date(now - 120 * DAY_MS), new Date(now + 240 * DAY_MS), { ...degree, cgpaAtLeast75: false }, {
+    status: "SUPERSEDED",
+    supersededBy: CURRENT_CID,
+    supersededByVersion: "2.0",
+    reason: "CGPA corrected after revaluation",
   });
-  issue(store, {
-    cid: "CRED-RKV-2024-V1",
-    ver: "1.0",
-    iat: new Date(now - 120 * DAY_MS),
-    exp: new Date(now + 240 * DAY_MS),
-    claims: { ...degree, cgpaAtLeast75: false },
-    entry: { status: "SUPERSEDED", supersededBy: "CRED-RKV-2024-V2", supersededByVersion: "2.0", reason: "CGPA corrected after revaluation" },
+  issue("CRED-RKV-ERR-0007", "1.0", new Date(now - 60 * DAY_MS), new Date(now + 300 * DAY_MS), degree, { status: "REVOKED", reason: "Issued in error: wrong programme code" });
+  issue("CRED-RKV-INT-2023", "1.0", new Date("2023-07-01T00:00:00Z"), new Date("2024-06-30T00:00:00Z"), { ...degree, degreeVerified: false, degreeLabel: "Internship certificate", cgpaAtLeast75: false }, { status: "ACTIVE" });
+  return doc;
+}
+
+/** Issues the sample credentials the first time they are needed. */
+async function credentials(store: Store): Promise<CredentialDoc> {
+  const existing = await store.get<CredentialDoc>(NS.credentials, "main");
+  if (existing) return existing;
+  return store.update<CredentialDoc, CredentialDoc>(NS.credentials, "main", (cur) => {
+    const doc = cur ?? seed();
+    return { value: doc, result: doc };
   });
-  issue(store, {
-    cid: "CRED-RKV-ERR-0007",
-    ver: "1.0",
-    iat: new Date(now - 60 * DAY_MS),
-    exp: new Date(now + 300 * DAY_MS),
-    claims: degree,
-    entry: { status: "REVOKED", reason: "Issued in error: wrong programme code" },
-  });
-  issue(store, {
-    cid: "CRED-RKV-INT-2023",
-    ver: "1.0",
-    iat: new Date("2023-07-01T00:00:00Z"),
-    exp: new Date("2024-06-30T00:00:00Z"),
-    claims: { ...degree, degreeVerified: false, degreeLabel: "Internship certificate", cgpaAtLeast75: false },
-    entry: { status: "ACTIVE" },
-  });
-  return store;
 }
 
 export interface SampleCredential {
@@ -168,15 +128,15 @@ export interface SampleCredential {
   qr: string;
 }
 
-export function listSampleCredentials(): SampleCredential[] {
-  const store = credentials();
+export async function listSampleCredentials(store: Store): Promise<SampleCredential[]> {
+  const doc = await credentials(store);
   const rows: [string, string, CredentialStatus][] = [
-    ["CRED-RKV-2024-V2", "Current degree credential (v2.0)", "AUTHENTIC"],
+    [CURRENT_CID, "Current degree credential (v2.0)", "AUTHENTIC"],
     ["CRED-RKV-2024-V1", "Earlier credential (v1.0)", "SUPERSEDED"],
     ["CRED-RKV-ERR-0007", "Credential issued in error", "REVOKED"],
     ["CRED-RKV-INT-2023", "Internship certificate (lapsed)", "EXPIRED"],
   ];
-  return rows.map(([cid, label, expected]) => ({ cid, label, expected, qr: store.qrs.get(cid) ?? "" }));
+  return rows.map(([cid, label, expected]) => ({ cid, label, expected, qr: doc.qrs[cid] ?? "" }));
 }
 
 const CLAIM_LABELS: Record<keyof Omit<MinimalClaims, "degreeLabel">, string> = {
@@ -196,11 +156,7 @@ const CLAIM_SCOPE: Record<keyof Omit<MinimalClaims, "degreeLabel">, ShareScope> 
 function discloseClaims(claims: MinimalClaims, allowed?: ShareScope[]): DisclosedClaim[] {
   return (Object.keys(CLAIM_LABELS) as (keyof typeof CLAIM_LABELS)[])
     .filter((k) => !allowed || allowed.includes(CLAIM_SCOPE[k]))
-    .map((k) => ({
-      key: k,
-      label: k === "degreeVerified" ? `${claims.degreeLabel}` : CLAIM_LABELS[k],
-      value: claims[k],
-    }));
+    .map((k) => ({ key: k, label: k === "degreeVerified" ? claims.degreeLabel : CLAIM_LABELS[k], value: claims[k] }));
 }
 
 const HEADLINES: Record<CredentialStatus, string> = {
@@ -231,33 +187,30 @@ export interface VerifyInput {
   qr?: string;
   apaarId?: string;
   verifierId?: string;
-  publicKeyPem?: string;
+  /** Keys to trust. Defaults to this server's key set. */
+  keySet?: Pick<IssuerKey, "kid" | "publicKeyPem">[];
 }
 
-export function verifyCredential(input: VerifyInput): VerificationResult {
+export async function verifyCredential(store: Store, input: VerifyInput): Promise<VerificationResult> {
   const { mode } = input;
-  const store = credentials();
+  const doc = await credentials(store);
   let qr = input.qr?.trim();
 
   // Lookup by APAAR ID is an online registry call. The raw ID is tokenized and never echoed.
   if (!qr && input.apaarId) {
     if (mode === "OFFLINE") {
-      return {
-        ...base(mode, "NOT_FOUND", "Offline mode can only read a scanned QR. An APAAR ID lookup needs the network."),
-        limitations: ["Switch to online mode to look up by APAAR ID."],
-      };
+      return { ...base(mode, "NOT_FOUND", "Offline mode can only read a scanned QR. An APAAR ID lookup needs the network."), limitations: ["Switch to online mode to look up by APAAR ID."] };
     }
-    const token = tokenizeDemographicId(input.apaarId, "APAAR", "NIST-DEMO").vaultToken;
-    if (token !== demoHolderToken()) {
-      return base(mode, "NOT_FOUND", "No credential is registered for that APAAR ID.");
-    }
-    qr = store.qrs.get("CRED-RKV-2024-V2");
+    const holder = studentForApaarId(input.apaarId);
+    if (!holder) return base(mode, "NOT_FOUND", "No credential is registered for that APAAR ID.");
+    qr = holder.id === DEMO_HOLDER.id ? doc.qrs[CURRENT_CID] : undefined;
+    if (!qr) return base(mode, "NOT_FOUND", "No credential has been issued to this student yet.");
   }
   if (!qr) return base(mode, "NOT_FOUND", "Provide a Smart QR payload or an APAAR ID.");
 
-  const parsed = verifySmartQr<CredentialPayload>(qr, input.publicKeyPem);
+  const parsed = verifySmartQr<CredentialPayload>(qr, input.keySet);
   const checks: VerificationCheck[] = [
-    { name: "Ed25519 signature", passed: parsed.signatureValid, note: parsed.signatureValid ? "Signed by the APAAR issuer key." : (parsed.error ?? "Failed.") },
+    { name: "Ed25519 signature", passed: parsed.signatureValid, note: parsed.signatureValid ? `Signed by APAAR issuer key ${parsed.kid ?? ""}.`.trim() : (parsed.error ?? "Failed.") },
   ];
   if (!parsed.signatureValid || !parsed.payload) {
     return { ...base(mode, "INVALID_SIGNATURE", parsed.error ?? "The QR could not be verified."), checks };
@@ -280,7 +233,7 @@ export function verifyCredential(input: VerifyInput): VerificationResult {
   // Revocation and supersession exist only in the online registry.
   let entry: RegistryEntry | undefined;
   if (mode === "ONLINE") {
-    entry = store.registry.get(p.cid);
+    entry = doc.registry[p.cid];
     checks.push({
       name: "Revocation registry",
       passed: !entry || entry.status === "ACTIVE",
@@ -291,9 +244,7 @@ export function verifyCredential(input: VerifyInput): VerificationResult {
     result.limitations.push("Offline check proves the QR is genuine and unexpired. It cannot tell whether the credential was revoked or replaced since it was issued.");
   }
 
-  if (entry?.status === "REVOKED") {
-    return { ...result, status: "REVOKED", headline: HEADLINES.REVOKED, detail: entry.reason ?? "This credential was withdrawn by the issuer." };
-  }
+  if (entry?.status === "REVOKED") return { ...result, status: "REVOKED", headline: HEADLINES.REVOKED, detail: entry.reason ?? "This credential was withdrawn by the issuer." };
   if (entry?.status === "SUPERSEDED") {
     return {
       ...result,
@@ -303,27 +254,30 @@ export function verifyCredential(input: VerifyInput): VerificationResult {
       supersededBy: entry.supersededBy,
     };
   }
-  if (expired) {
-    return { ...result, status: "EXPIRED", headline: HEADLINES.EXPIRED, detail: `This credential lapsed on ${p.exp.slice(0, 10)}.` };
-  }
+  if (expired) return { ...result, status: "EXPIRED", headline: HEADLINES.EXPIRED, detail: `This credential lapsed on ${p.exp.slice(0, 10)}.` };
 
   result.detail = "Signature, validity and registry checks passed.";
 
-  // OFFLINE: the holder showing the QR is the consent act, and the QR carries only what they chose to embed.
+  // Offline: the holder showing the QR is the consent act, and the QR carries only what they chose to embed.
   if (mode === "OFFLINE") {
     result.claims = discloseClaims(p.claims);
     return result;
   }
 
-  // ONLINE: a live, unexpired student share is required, and it limits which claims are visible.
-  const ledger = getConsentLedger();
+  // Online: a live, unexpired student share is required, and it limits which claims are visible.
+  const holder = studentForToken(p.holder);
+  if (!holder) {
+    result.checks.push({ name: "Student consent", passed: false, note: "The credential's holder is not a known student." });
+    return result;
+  }
   const verifierId = input.verifierId ?? "";
+  const ledger = await getLedger(store, holder.id);
   if (ledger.apaarStatus === "NOGEN_OPTED_OUT") {
     result.consent = { state: "OPTED_OUT" };
     result.checks.push({ name: "Student consent", passed: false, note: "The student opted out (NOGEN). No claims are released." });
     return result;
   }
-  const share = getActiveShare(verifierId);
+  const share = await getActiveShare(store, holder.id, verifierId);
   if (!share) {
     const pending = ledger.requests.find((r) => r.verifierId === verifierId && r.status === "PENDING");
     result.consent = { state: "NOT_GRANTED", pendingRequestId: pending?.requestId };
@@ -335,3 +289,6 @@ export function verifyCredential(input: VerifyInput): VerificationResult {
   result.claims = discloseClaims(p.claims, share.scopes);
   return result;
 }
+
+/** The key set a verifier should cache for offline checks. */
+export const verifierKeySet = () => getIssuerKeySet();

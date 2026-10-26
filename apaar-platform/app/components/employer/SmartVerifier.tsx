@@ -21,9 +21,9 @@ import { Button, Card, Eyebrow, ICON, Notice, Pill, SectionTitle, Toggle, inputC
 import ConsentPhone from "./ConsentPhone";
 
 interface Catalog {
-  verifiers: Verifier[];
+  you: Verifier | null;
   samples: SampleCredential[];
-  issuerPublicKeyPem: string;
+  keys: { kid: string; publicKeyPem: string; status: "current" | "retired" }[];
 }
 
 const STATUS_VIEW: Record<CredentialStatus, { tone: "accent" | "red" | "amber" | "neutral"; Icon: typeof CheckCircle2; text: string }> = {
@@ -39,7 +39,6 @@ const BANNER_BG = { accent: "border-accent/40 bg-accent/10", red: "border-red-40
 
 export default function SmartVerifier() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [verifierId, setVerifierId] = useState("VRF-ACME");
   const [offline, setOffline] = useState(false);
   const [input, setInput] = useState("");
   const [result, setResult] = useState<VerificationResult | null>(null);
@@ -62,7 +61,6 @@ export default function SmartVerifier() {
           mode: args.mode ?? (offline ? "OFFLINE" : "ONLINE"),
           qr: args.qr,
           apaarId: args.apaarId,
-          verifierId,
         });
         setResult(res.result);
         setLastQr(args.qr);
@@ -72,7 +70,7 @@ export default function SmartVerifier() {
         setBusy(false);
       }
     },
-    [offline, verifierId]
+    [offline]
   );
 
   function submit() {
@@ -98,8 +96,7 @@ export default function SmartVerifier() {
   }
 
   const view = result ? STATUS_VIEW[result.status] : null;
-  const verifier = catalog?.verifiers.find((v) => v.id === verifierId);
-  const keyPreview = catalog?.issuerPublicKeyPem.replace(/-----[A-Z ]+-----|\s/g, "").slice(0, 28);
+  const verifier = catalog?.you ?? undefined;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
@@ -114,20 +111,15 @@ export default function SmartVerifier() {
                   <WifiOff width={16} height={16} className={ICON} />
                   Offline verification mode
                 </p>
-                <p className="text-xs text-white/60">Checks the Ed25519 signature on this device. No network, no registry.</p>
+                <p className="text-xs text-white/60">Reads the QR and checks its Ed25519 signature. It cannot see revocation.</p>
               </div>
               <Toggle checked={offline} onChange={setOffline} label="Offline verification mode" />
             </div>
 
-            {!offline && (
-              <label className="block text-sm">
-                <span className="mb-1.5 block text-white/70">Verifying as</span>
-                <select value={verifierId} onChange={(e) => setVerifierId(e.target.value)} className={inputClass}>
-                  {catalog?.verifiers.map((v) => (
-                    <option key={v.id} value={v.id} className="text-black">{v.name}</option>
-                  ))}
-                </select>
-              </label>
+            {!offline && verifier && (
+              <p className="rounded-xl bg-white/[0.04] px-4 py-3 text-sm text-white/75">
+                Verifying as <strong className="text-white">{verifier.name}</strong>. Consent is checked for this organisation only.
+              </p>
             )}
 
             <label className="block text-sm">
@@ -177,10 +169,10 @@ export default function SmartVerifier() {
             </ul>
           </div>
 
-          {keyPreview && (
+          {catalog && catalog.keys.length > 0 && (
             <p className="mt-5 flex items-center gap-2 text-xs text-white/50">
               <KeyRound width={16} height={16} className={ICON} />
-              Issuer public key cached: <span className="font-mono">{keyPreview}…</span>
+              Issuer keys: {catalog.keys.map((k) => <span key={k.kid} className="font-mono">{k.kid} ({k.status})</span>)}
             </p>
           )}
         </Card>

@@ -32,13 +32,34 @@ export default function FuzzyQueue() {
   const [affidavit, setAffidavit] = useState<{ id: string; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmFix, setConfirmFix] = useState<CaseRow | null>(null);
+  const [fixReason, setFixReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api<{ records: CaseRow[] }>("/api/verify/fuzzy-match")
-      .then((r) => setRows(r.records))
+    api<{ records: CaseRow[]; decisions: Record<string, { decision: Resolution }> }>("/api/verify/fuzzy-match")
+      .then((r) => {
+        setRows(r.records);
+        setResolved(Object.fromEntries(Object.entries(r.decisions).map(([id, d]) => [id, d.decision])));
+      })
       .catch((e) => setError(errorText(e)));
   }, []);
+
+  /** Saves the decision on the server, which also writes it to the audit log. The screen follows the server. */
+  async function decide(id: string, decision: Resolution, reason?: string): Promise<boolean> {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/verify/fuzzy-match", { action: "RESOLVE", caseId: id, decision, reason: reason?.trim() || undefined });
+      setResolved((cur) => ({ ...cur, [id]: decision }));
+      return true;
+    } catch (e) {
+      setError(errorText(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function openAffidavit(id: string) {
     try {
@@ -148,15 +169,15 @@ export default function FuzzyQueue() {
               {!exact && (
                 <div className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3">
                   {r.analysis.classification === "AUTO_FIXABLE" ? (
-                    <Button size="sm" variant="primary" disabled={res === "FIXED"} onClick={() => setConfirmFix(r)}>
+                    <Button size="sm" variant="primary" disabled={busy || res === "FIXED"} onClick={() => { setFixReason(""); setConfirmFix(r); }}>
                       <Check width={16} height={16} className={ICON} />Apply Aadhaar spelling to ERP
                     </Button>
                   ) : (
-                    <Button size="sm" variant="primary" disabled={r.analysis.classification === "HARD_REJECT"} title={r.analysis.classification === "HARD_REJECT" ? "A hard reject cannot be accepted" : undefined} onClick={() => setResolved({ ...resolved, [r.id]: "ACCEPTED" })}>
+                    <Button size="sm" variant="primary" disabled={busy || r.analysis.classification === "HARD_REJECT"} title={r.analysis.classification === "HARD_REJECT" ? "A hard reject cannot be accepted" : undefined} onClick={() => decide(r.id, "ACCEPTED")}>
                       <Check width={16} height={16} className={ICON} />Accept match
                     </Button>
                   )}
-                  <Button size="sm" onClick={() => setResolved({ ...resolved, [r.id]: "REJECTED" })}>
+                  <Button size="sm" disabled={busy} onClick={() => decide(r.id, "REJECTED")}>
                     <X width={16} height={16} className={ICON} />Reject
                   </Button>
                   {r.analysis.classification === "SOFT_MISMATCH_REVIEW" && (
@@ -175,11 +196,16 @@ export default function FuzzyQueue() {
         {confirmFix && (
           <>
             <p className="text-sm text-white/75">
-              The ERP name <strong>&ldquo;{confirmFix.erp.name}&rdquo;</strong> will be changed to <strong>&ldquo;{confirmFix.digilocker.name}&rdquo;</strong>, so the government check accepts it. This is the registrar&apos;s decision and is recorded.
+              The ERP name <strong>&ldquo;{confirmFix.erp.name}&rdquo;</strong> will be changed to <strong>&ldquo;{confirmFix.digilocker.name}&rdquo;</strong>, so the government check accepts it. This is the registrar&apos;s decision. It is saved and written to the audit log.
             </p>
+            <label className="mt-4 block text-sm">
+              <span className="mb-1.5 block text-white/70">Reason (optional, saved with the decision)</span>
+              <input value={fixReason} onChange={(e) => setFixReason(e.target.value)} maxLength={300} className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-accent focus:outline-none" placeholder="For example: checked the Aadhaar copy" />
+            </label>
+            {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <Button onClick={() => setConfirmFix(null)}>Cancel</Button>
-              <Button variant="primary" onClick={() => { setResolved({ ...resolved, [confirmFix.id]: "FIXED" }); setConfirmFix(null); }}>Confirm and apply</Button>
+              <Button variant="primary" disabled={busy} onClick={async () => { if (await decide(confirmFix.id, "FIXED", fixReason)) setConfirmFix(null); }}>Confirm and apply</Button>
             </div>
           </>
         )}

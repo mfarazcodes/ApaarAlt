@@ -19,18 +19,21 @@ const TABS: { id: Mode; label: string; badge?: string }[] = [
   { id: "aicte", label: "AICTE National Command Center" },
 ];
 
-export default function AdminTabs() {
-  const [mode, setMode] = useState<Mode>("erp");
+export default function AdminTabs({ canUseCollegeConsole }: { canUseCollegeConsole: boolean }) {
+  // An AICTE officer has no college console, so they start on (and only see) the national view.
+  const [mode, setMode] = useState<Mode>(canUseCollegeConsole ? "erp" : "aicte");
   // Bumped after a sync so the intake tracker refetches its totals.
   const [syncVersion, setSyncVersion] = useState(0);
 
   return (
     <div>
       <div className="mb-6">
-        <Tabs tabs={TABS} value={mode} onChange={setMode} label="Console mode" />
+        {canUseCollegeConsole ? (
+          <Tabs tabs={TABS} value={mode} onChange={setMode} label="Console mode" />
+        ) : null}
       </div>
 
-      {mode === "erp" ? (
+      {mode === "erp" && canUseCollegeConsole ? (
         <div id="panel-erp" role="tabpanel" aria-labelledby="tab-erp" className="space-y-6">
           <MarksheetUploader onSynced={() => setSyncVersion((v) => v + 1)} />
           <div className="grid gap-6 xl:grid-cols-2">

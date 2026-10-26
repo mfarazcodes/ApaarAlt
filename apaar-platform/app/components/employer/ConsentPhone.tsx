@@ -14,8 +14,9 @@ interface Bubble {
 }
 
 /**
- * A simulated student phone. Every button here calls the same consent API the student wallet uses,
- * so approving or revoking on this phone really changes what the verifier can see.
+ * DEMO ONLY: a simulated student phone, so one person can play both sides. In a real deployment the
+ * student answers on their own phone. These buttons call a demo-mode endpoint, and the audit log records
+ * the actor as the simulator, never as the student.
  */
 export default function ConsentPhone({
   verifier,
@@ -34,13 +35,14 @@ export default function ConsentPhone({
   const [busy, setBusy] = useState(false);
 
   const push = (b: Bubble) => setThread((t) => [...t, b]);
+  const holderToken = result?.holderToken;
   const pendingId = requestId ?? result?.consent.pendingRequestId;
   const granted = result?.consent.state === "GRANTED";
 
-  async function run(body: Record<string, unknown>, onOk: () => void) {
+  async function run(path: string, body: Record<string, unknown>, onOk: () => void) {
     setBusy(true);
     try {
-      await api("/api/consent", body);
+      await api(path, body);
       onOk();
       onChanged();
     } catch (e) {
@@ -51,10 +53,10 @@ export default function ConsentPhone({
   }
 
   async function requestConsent() {
-    if (!verifier) return;
+    if (!verifier || !holderToken) return;
     setBusy(true);
     try {
-      const res = await api<{ request: { requestId: string; messageText: string } }>("/api/consent", { action: "REQUEST_ACCESS", verifierId: verifier.id });
+      const res = await api<{ request: { requestId: string; messageText: string } }>("/api/consent", { action: "REQUEST_ACCESS", holderToken });
       setRequestId(res.request.requestId);
       push({ from: "system", text: res.request.messageText });
       onChanged();
@@ -66,14 +68,14 @@ export default function ConsentPhone({
   }
 
   const reply = (approve: boolean) =>
-    run({ action: "RESPOND_REQUEST", requestId: pendingId, approve, via: channel }, () => {
+    run("/api/demo/phone", { action: "REPLY", holderToken, requestId: pendingId, approve, via: channel }, () => {
       push({ from: "student", text: approve ? "YES" : "NO" });
       push({ from: "system", text: approve ? "Done. Sharing is on for 30 days. Reply STOP any time to end it." : "Okay, nothing was shared." });
       setRequestId(undefined);
     });
 
   const revoke = () =>
-    run({ action: "REVOKE_SHARE", shareId: result?.consent.shareId }, () => {
+    run("/api/demo/phone", { action: "STOP", holderToken, shareId: result?.consent.shareId }, () => {
       push({ from: "student", text: "STOP" });
       push({ from: "system", text: "Sharing ended. The verifier can no longer see your claims." });
     });
@@ -86,7 +88,7 @@ export default function ConsentPhone({
       <SectionTitle
         eyebrow="Consent simulator"
         title="Student phone: approve or revoke"
-        hint={disabled ? "Offline mode never contacts the student. The QR itself is the consent." : "Ask the student for access, then answer as them."}
+        hint={disabled ? "Offline mode never contacts the student. The QR itself is the consent." : "Demo simulator: ask the student for access, then answer as them. In production the student answers on their own phone."}
       />
 
       <div className="mx-auto w-full max-w-[300px] rounded-[2rem] border-4 border-white/20 bg-black/35 p-3">

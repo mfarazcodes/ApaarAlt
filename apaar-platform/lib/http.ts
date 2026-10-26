@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
 import type { ZodError, ZodType } from "zod";
+import { ConfigError, HttpError } from "./errors";
 
-/** An error that maps to an HTTP status. Route handlers turn it into a JSON response. */
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public extra?: Record<string, unknown>
-  ) {
-    super(message);
-  }
-}
+export { ConfigError, HttpError };
 
 export const DEFAULT_BODY_LIMIT = 64 * 1024;
 
@@ -45,7 +37,11 @@ export function parseWith<T>(schema: ZodType<T>, value: unknown): T {
 
 export function jsonError(error: unknown, fallback = "Request failed") {
   if (error instanceof HttpError) {
-    return NextResponse.json({ success: false, error: error.message, ...error.extra }, { status: error.status });
+    const headers = typeof error.extra?.retryAfterSec === "number" ? { "Retry-After": String(error.extra.retryAfterSec) } : undefined;
+    return NextResponse.json({ success: false, error: error.message, ...error.extra }, { status: error.status, headers });
+  }
+  if (error instanceof ConfigError) {
+    return NextResponse.json({ success: false, error: error.message, code: "CONFIG_MISSING", missing: error.missing }, { status: 503 });
   }
   console.error(error);
   return NextResponse.json({ success: false, error: fallback }, { status: 500 });
