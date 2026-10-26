@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CloudOff } from "lucide-react";
+import { useT } from "../portal/I18n";
 import { OFFLINE_CACHE } from "../portal/offlineCache";
 import { ICON, Pill } from "../portal/ui";
 
@@ -10,6 +11,7 @@ import { ICON, Pill } from "../portal/ui";
  * opens with no network. API calls are never cached, so no student data is stored here.
  */
 export default function OfflineSupport() {
+  const { t } = useT();
   const [ready, setReady] = useState<"checking" | "ready" | "unsupported">("checking");
 
   useEffect(() => {
@@ -43,8 +45,8 @@ export default function OfflineSupport() {
   return (
     <p className="mb-4 flex items-center gap-2 text-sm text-white/65">
       <CloudOff width={16} height={16} className={ICON} />
-      {ready === "ready" ? <Pill tone="accent">Works offline</Pill> : <Pill tone="amber">Offline page saving is not available in this browser</Pill>}
-      <span className="text-xs text-white/50">{ready === "ready" ? "This page and the issuer keys are saved on this device." : "Offline checks still work if the page is already open."}</span>
+      {ready === "ready" ? <Pill tone="accent">{t("off.works")}</Pill> : <Pill tone="amber">{t("off.unsupported")}</Pill>}
+      <span className="text-xs text-white/65">{ready === "ready" ? t("off.saved") : t("off.still")}</span>
     </p>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useT } from "../portal/I18n";
-import { Tabs } from "../portal/ui";
+import { Disclosure, Tabs } from "../portal/ui";
 import AuditTrail from "./AuditTrail";
 import CollisionDetector from "./CollisionDetector";
 import { ConsoleStatsProvider } from "./ConsoleStats";
@@ -16,6 +16,7 @@ import MarksheetUploader from "./MarksheetUploader";
 import RetryQueue from "./RetryQueue";
 import SpikeDetector from "./SpikeDetector";
 import TodayStrip from "./TodayStrip";
+import GlanceStrip from "./GlanceStrip";
 
 type Mode = "erp" | "aicte";
 
@@ -49,13 +50,16 @@ export default function AdminTabs({ canUseCollegeConsole }: { canUseCollegeConso
         </div>
       ) : (
         <div id="panel-aicte" role="tabpanel" aria-labelledby="tab-aicte" className="space-y-6">
+          <GlanceStrip />
           <div className="grid gap-6 xl:grid-cols-2">
             <Leaderboard />
             <CollisionDetector />
           </div>
           <SpikeDetector />
           <AuditTrail />
-          <IncidentClock />
+          <Disclosure summary={t("con.compliance")}>
+            <IncidentClock />
+          </Disclosure>
         </div>
       )}
     </ConsoleStatsProvider>

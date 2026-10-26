@@ -83,6 +83,17 @@ describe("keys used in the UI exist in the dictionary", () => {
       ...statuses.map((s) => `status.${s}`),
       ...roles.map((r) => `role.${r}`),
     ];
+    // Keys built from a variable part: schema fields, change kinds, audit types, exit levels, skill statuses, checklist rows.
+    wanted.push(
+      ...["rollNumber", "studentName", "abcId", "courseCode", "courseTitle", "credits", "marks", "maxMarks", "grade"].map((f) => `con.field.${f}`),
+      ...["ADDED", "CHANGED", "REMOVED", "UNCHANGED"].map((c) => `con.change.${c}`),
+      ...["CONSENT", "FUZZY_DECISION", "NAD_SYNC", "GRADE_CHANGE", "DISPUTE", "VERIFICATION", "SYSTEM"].map((x) => `con.au.t.${x}`),
+      ...["HIGH", "MEDIUM", "LOW"].map((x) => `con.sev.${x}`),
+      ...["UG_CERTIFICATE", "UG_DIPLOMA", "DEGREE"].map((x) => `nep.level.${x}`),
+      ...["COVERED", "IN_PLAN", "GAP"].map((x) => `skill.s.${x}`),
+      ...["genuine", "notExpired", "notCancelled", "allowed"].map((x) => `ver.c.${x}`),
+      ...["colleges", "aicte", "students", "employers"].flatMap((g) => [1, 2, 3].map((n) => `land.how.${g}.${n}`).concat(`land.how.${g}.open`))
+    );
     for (const k of wanted) expect(k in EN && k in HI, k).toBe(true);
     // Dispute-field option labels are keyed by the English field name, so check the real list.
     const src = readFileSync(join(ROOT, "app/components/student/ConsentWallet.tsx"), "utf8");

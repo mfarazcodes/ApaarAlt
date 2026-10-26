@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, ImageUp, X } from "lucide-react";
+import { useT } from "../portal/I18n";
 import { Button, ICON, Notice } from "../portal/ui";
 
 interface BarcodeDetectorLike {
@@ -28,6 +29,7 @@ async function decodeCanvas(canvas: HTMLCanvasElement, native: BarcodeDetectorLi
 
 /** Reads a QR from the camera or from an image file. Runs entirely on the device. */
 export default function CameraScanner({ onDecode, disabled = false }: { onDecode: (text: string) => void; disabled?: boolean }) {
+  const { t } = useT();
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -47,13 +49,13 @@ export default function CameraScanner({ onDecode, disabled = false }: { onDecode
   async function start() {
     setError("");
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError("This browser cannot open the camera. Use the image option, or paste the QR text.");
+      setError(t("cam.noCamera"));
       return;
     }
     try {
       stream.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     } catch {
-      setError("Camera access was blocked. Allow it in the browser, or use the image option.");
+      setError(t("cam.blocked"));
       return;
     }
     setScanning(true);
@@ -90,9 +92,9 @@ export default function CameraScanner({ onDecode, disabled = false }: { onDecode
       canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
       const text = await decodeCanvas(canvas, nativeDetector());
       if (text) onDecode(text);
-      else setError("No QR code was found in that image.");
+      else setError(t("cam.noQr"));
     } catch {
-      setError("That file could not be read as an image.");
+      setError(t("cam.badImage"));
     }
   }
 
@@ -102,21 +104,21 @@ export default function CameraScanner({ onDecode, disabled = false }: { onDecode
         {scanning ? (
           <Button size="sm" onClick={stop}>
             <X width={16} height={16} className={ICON} />
-            Stop camera
+            {t("cam.stop")}
           </Button>
         ) : (
           <Button size="sm" disabled={disabled} onClick={start}>
             <Camera width={16} height={16} className={ICON} />
-            Scan with camera
+            {t("cam.scan")}
           </Button>
         )}
         <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/[0.12] ${disabled ? "pointer-events-none opacity-50" : ""}`}>
           <ImageUp width={16} height={16} className={ICON} />
-          Scan from image
-          <input type="file" accept="image/*" className="sr-only" aria-label="Choose an image containing a QR code" onChange={(e) => fromImage(e.target.files?.[0])} />
+          {t("cam.image")}
+          <input type="file" accept="image/*" className="sr-only" aria-label={t("cam.imageAria")} onChange={(e) => fromImage(e.target.files?.[0])} />
         </label>
       </div>
-      {scanning && <video ref={video} muted playsInline className="aspect-video w-full rounded-xl bg-black/60 object-cover" aria-label="Camera preview" />}
+      {scanning && <video ref={video} muted playsInline className="aspect-video w-full rounded-xl bg-black/60 object-cover" aria-label={t("cam.preview")} />}
       {error && <Notice tone="amber">{error}</Notice>}
     </div>
   );
