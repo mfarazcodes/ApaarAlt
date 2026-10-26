@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Play, Plus, RotateCw, Wifi, WifiOff } from "lucide-react";
 import type { JobStatus, SyncJob } from "@/lib/jobs";
 import { api, errorText } from "../portal/api";
@@ -27,10 +27,11 @@ export default function RetryQueue() {
   const [busy, setBusy] = useState(false);
   const [auto, setAuto] = useState(true);
   const [, tick] = useState(0);
-  const skew = useRef(0);
+  // How far the server's clock is from this one, so countdowns agree with when the server will retry.
+  const [skew, setSkew] = useState(0);
 
   const apply = useCallback((s: QueueState) => {
-    skew.current = new Date(s.serverTime).getTime() - Date.now();
+    setSkew(new Date(s.serverTime).getTime() - Date.now());
     setState(s);
   }, []);
 
@@ -129,7 +130,7 @@ export default function RetryQueue() {
               {j.status === "QUEUED" && <Pill tone="neutral">Queued</Pill>}
               {j.status === "RETRYING" && (
                 <Pill tone="amber">
-                  Retry {j.attempts} of {j.maxAttempts} · next in {secondsUntil(j.nextRunAt, skew.current)}s
+                  Retry {j.attempts} of {j.maxAttempts} · next in {secondsUntil(j.nextRunAt, skew)}s
                 </Pill>
               )}
               {j.status === "DEAD" && (

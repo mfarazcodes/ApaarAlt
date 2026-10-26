@@ -11,7 +11,6 @@ import {
   SAMPLE_PROBLEM_CSV,
   SAMPLE_REVALUATION_CSV,
   SAMPLE_TARGET_SYLLABUS,
-  calculateInstitutionCompliance,
   calculateLateralEntryOverlap,
   computeComplianceScore,
   detectSchemaMapping,
@@ -24,10 +23,6 @@ import {
   stripGovernmentIds,
   validateSwayamCap,
   type CourseDiff,
-  type InstitutionMeta,
-  type NADStudentRecord,
-  type PriorSummary,
-  type ProgrammeIntake,
   type SyllabusTopic,
 } from "@/lib/nadSyncEngine";
 import { complianceOf, groupByRoll, programmeFor, readState, seedState, tokenFor, type SyncState } from "@/lib/syncState";
