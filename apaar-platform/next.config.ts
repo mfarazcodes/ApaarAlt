@@ -4,9 +4,10 @@ const isDev = process.env.NODE_ENV === "development";
 
 // Next.js inlines small scripts and styles, and the theme script in layout.tsx is inline, so 'unsafe-inline'
 // is needed without a nonce setup (see the Next.js content-security-policy guide). 'unsafe-eval' is development only.
+// 'wasm-unsafe-eval' lets the on-device OCR engine (WebAssembly) start. It does not allow eval() of strings.
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self'",

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ScanLine, UploadCloud } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import type { AICTEIntakeCompliance, CourseDiff, NADStudentRecord, SchemaMappingResult } from "@/lib/nadSyncEngine";
 import { api, errorText } from "../portal/api";
-import { Button, Card, Eyebrow, ICON, Notice, Pill, SectionTitle, inputClass } from "../portal/ui";
+import { Button, Card, Eyebrow, Notice, Pill, SectionTitle, inputClass } from "../portal/ui";
+import OcrScan from "./OcrScan";
 
 interface PreviewResponse {
   message: string;
@@ -26,6 +27,9 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
   const [busy, setBusy] = useState(false);
   const [samples, setSamples] = useState<{ original: string; revaluation: string; problem: string } | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  // A sheet read by OCR cannot be previewed or synced until the registrar confirms they checked it.
+  const [ocrChecked, setOcrChecked] = useState(false);
+  const ocrBlocked = source.startsWith("OCR") && !ocrChecked;
   const fileRef = useRef<HTMLInputElement>(null);
   const shownMapping = csv.trim() ? mapping : null;
   const hasBlocking = (preview?.blockingIssues.length ?? 0) > 0;
@@ -103,11 +107,10 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
               <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.problem, "Sheet with problems")}>Load sheet with problems</Button>
             </div>
           </div>
-          <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.revaluation, "OCR scan (simulated)")}>
-            <ScanLine width={16} height={16} className={ICON} />
-            Scan marksheet image (demo)
-          </Button>
-          <p className="text-xs text-white/50">OCR is simulated here: the button loads a pre-extracted sheet. Real image OCR is not connected.</p>
+          <OcrScan
+            onRead={(csv) => load(csv, "OCR scan (check every value)")}
+            onConfirmedChange={setOcrChecked}
+          />
 
           <label className="block text-sm">
             <span className="mb-1.5 flex items-center justify-between text-white/70">
@@ -162,10 +165,10 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-white/10 pt-5">
-        <Button disabled={busy || !csv.trim() || Boolean(shownMapping?.missingRequired.length)} onClick={() => run("PREVIEW")}>Preview diff</Button>
+        <Button disabled={busy || !csv.trim() || ocrBlocked || Boolean(shownMapping?.missingRequired.length)} title={ocrBlocked ? "Confirm you checked the values read from the image" : undefined} onClick={() => run("PREVIEW")}>Preview diff</Button>
         <Button
           variant="primary"
-          disabled={busy || !preview || Boolean(shownMapping?.missingRequired.length) || (hasBlocking && !acknowledged)}
+          disabled={busy || !preview || ocrBlocked || Boolean(shownMapping?.missingRequired.length) || (hasBlocking && !acknowledged)}
           title={!preview ? "Preview the diff first" : undefined}
           onClick={() => run("SYNC")}
         >
