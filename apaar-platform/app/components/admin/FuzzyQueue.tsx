@@ -120,7 +120,7 @@ export default function FuzzyQueue() {
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-x-2 text-sm font-medium">
                     <span>&ldquo;{r.erp.name}&rdquo;</span>
-                    <ArrowLeftRight width={16} height={16} className={`${ICON} text-accent`} />
+                    <ArrowLeftRight width={16} height={16} className={`${ICON} text-accent-soft`} />
                     <span className="text-white/75">&ldquo;{r.digilocker.name}&rdquo;</span>
                   </p>
                   <p className="mt-0.5 text-xs text-white/55">{r.studentRoll} · {r.institution}</p>
@@ -200,7 +200,7 @@ export default function FuzzyQueue() {
             </p>
             <label className="mt-4 block text-sm">
               <span className="mb-1.5 block text-white/70">Reason (optional, saved with the decision)</span>
-              <input value={fixReason} onChange={(e) => setFixReason(e.target.value)} maxLength={300} className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-accent focus:outline-none" placeholder="For example: checked the Aadhaar copy" />
+              <input value={fixReason} onChange={(e) => setFixReason(e.target.value)} maxLength={300} className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/55 focus:border-accent focus:outline-none" placeholder="For example: checked the Aadhaar copy" />
             </label>
             {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">

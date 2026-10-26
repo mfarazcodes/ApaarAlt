@@ -36,7 +36,7 @@ function Card({
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
       {children}
     </p>
   );
@@ -91,9 +91,9 @@ function MatcherCard() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <Eyebrow>Pre-flight matcher</Eyebrow>
-            <h3 className="mt-1 text-base font-semibold">ERP → NAD schema map</h3>
+            <h2 className="mt-1 text-base font-semibold">ERP → NAD schema map</h2>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent-soft">
             <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_6px_var(--accent)]" />
             Live
           </span>
@@ -105,14 +105,14 @@ function MatcherCard() {
             <ArrowLeftRight
               width={16}
               height={16}
-              className={`${ICON} text-accent`}
+              className={`${ICON} text-accent-soft`}
             />
             <span className="truncate font-medium text-white/70">
               &ldquo;{pair.nad}&rdquo;
             </span>
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/15 px-2 py-1 text-xs font-semibold text-accent shadow-[0_0_18px_-4px_var(--accent)]">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-black/40 px-2 py-1 text-xs font-semibold text-accent-soft ring-1 ring-accent/30 shadow-[0_0_18px_-4px_var(--accent)]">
               <Sparkles width={16} height={16} className="h-3.5 w-3.5 shrink-0" />
               {pair.score}% Jaro-Winkler Match
             </span>
@@ -139,7 +139,7 @@ function MatcherCard() {
             <span className={`font-semibold ${pending ? "text-amber-300" : "text-white"}`}>
               {pending} Pending
             </span>{" "}
-            <span className="text-white/45">(retries on reconnect)</span>
+            <span className="text-white/55">(retries on reconnect)</span>
           </p>
           <Toggle checked={offline} onChange={toggleOffline} label="Simulate offline mode" />
         </div>
@@ -149,7 +149,7 @@ function MatcherCard() {
         <div className="flex items-baseline justify-between text-xs">
           <span className="text-white/60">AICTE Approved Intake</span>
           <span className="font-semibold text-white">
-            420 / 420 <span className="text-accent">Verified</span>
+            420 / 420 <span className="text-accent-soft">Verified</span>
           </span>
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
@@ -206,14 +206,14 @@ function TwinCard() {
   return (
     <Card className="ring-1 ring-accent/40 shadow-[0_40px_80px_-24px_var(--accent-ink)] lg:-translate-y-8 lg:p-6">
       <div className="flex items-center gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-sm font-bold text-accent">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-sm font-bold text-accent-soft">
           RK
         </span>
         <div className="min-w-0">
           <Eyebrow>Academic Digital Twin</Eyebrow>
-          <h3 className="mt-0.5 truncate text-base font-semibold">
+          <h2 className="mt-0.5 truncate text-base font-semibold">
             B.Tech CSE • Sem 6 • {earned}/{total} ABC Credits
-          </h3>
+          </h2>
         </div>
       </div>
 
@@ -231,7 +231,7 @@ function TwinCard() {
                     ? "bg-accent text-deep"
                     : current
                       ? "bg-white text-deep ring-4 ring-accent/40"
-                      : "bg-white/10 text-white/40"
+                      : "bg-white/10 text-white/55"
                 }`}
               >
                 {s}
@@ -262,7 +262,7 @@ function TwinCard() {
           />
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-sm font-medium text-accent">
+          <p className="text-sm font-medium text-accent-soft">
             +{recommended} SWAYAM Credits Recommended
           </p>
           <button
@@ -272,7 +272,7 @@ function TwinCard() {
             className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold transition hover:bg-white/20"
           >
             {planAdded ? (
-              <CheckCircle2 width={16} height={16} className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <CheckCircle2 width={16} height={16} className="h-3.5 w-3.5 shrink-0 text-accent-soft" />
             ) : (
               <Plus width={16} height={16} className="h-3.5 w-3.5 shrink-0" />
             )}
@@ -299,7 +299,7 @@ function TwinCard() {
       <div className="mt-4">
         <div className="flex items-center justify-between">
           <Eyebrow>DPDP Consent Wallet</Eyebrow>
-          <span className="inline-flex items-center gap-1 text-[11px] text-white/45">
+          <span className="inline-flex items-center gap-1 text-[11px] text-white/55">
             <Lock width={16} height={16} className="h-3 w-3 shrink-0" />
             NOGEN protected
           </span>
@@ -308,7 +308,7 @@ function TwinCard() {
           <li className="flex items-center justify-between gap-3 px-3.5 py-3 text-sm">
             <span className="min-w-0 text-white/85">
               Share Degree &amp; Internship Status for 30 Days:{" "}
-              <strong className={shareStatus ? "text-accent" : "text-white/50"}>
+              <strong className={shareStatus ? "text-accent-soft" : "text-white/50"}>
                 {shareStatus ? "ON" : "OFF"}
               </strong>
             </span>
@@ -337,7 +337,7 @@ const STATUSES = {
     label: "AUTHENTIC",
     note: "Verified — no marksheet exposed",
     Icon: CheckCircle2,
-    text: "text-accent",
+    text: "text-accent-soft",
     bg: "bg-accent/15",
     ring: "ring-accent/60",
   },
@@ -427,7 +427,7 @@ function RadarIcon() {
       height={56}
       viewBox="0 0 56 56"
       aria-hidden="true"
-      className="h-14 w-14 shrink-0 text-accent"
+      className="h-14 w-14 shrink-0 text-accent-soft"
     >
       <circle cx={28} cy={28} r={26} fill="none" stroke="currentColor" strokeOpacity={0.25} />
       <circle cx={28} cy={28} r={17} fill="none" stroke="currentColor" strokeOpacity={0.25} />
@@ -468,7 +468,7 @@ function QrRadarCard() {
             </span>
             <p className="mt-2 text-sm text-white/75">{s.note}</p>
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/50">
-              <KeyRound width={16} height={16} className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <KeyRound width={16} height={16} className="h-3.5 w-3.5 shrink-0 text-accent-soft" />
               Works offline: Ed25519 check on the device
             </p>
           </div>
@@ -505,7 +505,7 @@ function QrRadarCard() {
                 "Scanning cross-college registry…"
               ) : (
                 <>
-                  <span className="text-accent">0</span> Duplicate Cross-College Enrolments
+                  <span className="text-accent-soft">0</span> Duplicate Cross-College Enrolments
                   Detected
                 </>
               )}
@@ -521,7 +521,7 @@ function QrRadarCard() {
             </button>
           </div>
         </div>
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-white/45">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-white/55">
           <Fingerprint width={16} height={16} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           Explainable flags only — each alert cites the matching fields.
         </p>

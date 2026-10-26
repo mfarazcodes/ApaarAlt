@@ -62,7 +62,7 @@ export default function CollisionDetector() {
           <li key={f.id} className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold">
-                <GitCompareArrows width={16} height={16} className={`${ICON} text-accent`} />
+                <GitCompareArrows width={16} height={16} className={`${ICON} text-accent-soft`} />
                 {f.title}
               </p>
               <Pill tone={SEV_TONE[f.severity]}>{f.severity}</Pill>
@@ -73,7 +73,7 @@ export default function CollisionDetector() {
               {f.evidence.map((e) => <li key={e}>{e}</li>)}
             </ul>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-accent">{f.suggestedAction}</p>
+              <p className="text-xs text-accent-soft">{f.suggestedAction}</p>
               <Button size="sm" onClick={() => setDismissed((d) => [...d, f.id])}>Mark as reviewed</Button>
             </div>
           </li>

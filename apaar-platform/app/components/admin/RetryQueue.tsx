@@ -87,7 +87,7 @@ export default function RetryQueue() {
 
       <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
         <p className="flex items-center gap-2 text-sm font-medium">
-          {state?.nadOnline !== false ? <Wifi width={16} height={16} className={`${ICON} text-accent`} /> : <WifiOff width={16} height={16} className={`${ICON} text-amber-300`} />}
+          {state?.nadOnline !== false ? <Wifi width={16} height={16} className={`${ICON} text-accent-soft`} /> : <WifiOff width={16} height={16} className={`${ICON} text-amber-300`} />}
           {state?.nadOnline !== false ? "NAD reachable" : "NAD unreachable (simulated outage)"}
         </p>
         <Toggle checked={state?.nadOnline !== false} disabled={!state || busy} onChange={(on) => act({ action: "SET_NAD", online: on })} label="NAD reachable" />

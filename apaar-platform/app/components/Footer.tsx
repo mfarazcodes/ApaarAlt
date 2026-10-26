@@ -14,7 +14,7 @@ const PLATFORM = [
 
 const STANDARDS = ["AICTE compliance", "NAD / ABC credits", "DPDP Act consent"];
 
-const linkClass = "text-white/80 transition hover:text-accent";
+const linkClass = "text-white/80 transition hover:text-accent-soft";
 
 export default function Footer() {
   return (
@@ -25,7 +25,7 @@ export default function Footer() {
             <ShieldCheck width={16} height={16} className="h-6 w-6 shrink-0" />
           </span>
           <h2 className="mx-auto mt-8 max-w-3xl text-[clamp(2rem,4.8vw,3.8rem)] leading-[1.02] tracking-[-0.04em] text-white">
-            Verify once, <span className="text-white/45">trusted everywhere.</span>
+            Verify once, <span className="text-white/55">trusted everywhere.</span>
           </h2>
           <p className="mt-4 text-base text-white/60">
             Pick a portal and see the bridge working end to end.
@@ -61,7 +61,7 @@ export default function Footer() {
           </div>
 
           <nav aria-label="Portals">
-            <p className="text-sm text-white/45">Portals</p>
+            <p className="text-sm text-white/55">Portals</p>
             <ul className="mt-4 space-y-3 text-[15px]">
               {PORTALS.map((l) => (
                 <li key={l.href}>
@@ -74,7 +74,7 @@ export default function Footer() {
           </nav>
 
           <nav aria-label="Platform">
-            <p className="text-sm text-white/45">Platform</p>
+            <p className="text-sm text-white/55">Platform</p>
             <ul className="mt-4 space-y-3 text-[15px]">
               {PLATFORM.map((l) => (
                 <li key={l.href}>
@@ -87,7 +87,7 @@ export default function Footer() {
           </nav>
 
           <div>
-            <p className="text-sm text-white/45">Built around</p>
+            <p className="text-sm text-white/55">Built around</p>
             <ul className="mt-4 space-y-3 text-[15px] text-white/80">
               {STANDARDS.map((s) => (
                 <li key={s}>{s}</li>
@@ -97,12 +97,10 @@ export default function Footer() {
         </div>
       </div>
 
+      {/* Pure decoration, so it is generated content: not text for assistive tech or contrast checks. */}
       <p
         aria-hidden="true"
-        className="pointer-events-none mt-10 select-none text-center text-[clamp(5rem,22vw,18rem)] font-semibold leading-[0.8] tracking-[-0.06em] text-white/[0.04]"
-      >
-        apaar
-      </p>
+        className="pointer-events-none mt-10 select-none text-center text-[clamp(5rem,22vw,18rem)] font-semibold leading-[0.8] tracking-[-0.06em] text-white/[0.04] before:content-['apaar']" />
     </footer>
   );
 }

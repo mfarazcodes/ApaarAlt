@@ -65,7 +65,7 @@ export default function DigitalTwinTimeline({ studentId }: { studentId: string }
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 text-lg font-semibold">
             {sem.status === "COMPLETED" ? (
-              <CheckCircle2 width={16} height={16} className={`${ICON} text-accent`} />
+              <CheckCircle2 width={16} height={16} className={`${ICON} text-accent-soft`} />
             ) : (
               <CircleDashed width={16} height={16} className={`${ICON} text-white/60`} />
             )}
@@ -100,7 +100,7 @@ export default function DigitalTwinTimeline({ studentId }: { studentId: string }
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular-nums">{c.credits}</td>
                   <td className="py-2.5 text-right">
-                    {sem.status === "COMPLETED" ? <Pill tone={GRADE_TONE(c.grade)}>{c.grade}</Pill> : <span className="text-white/45">-</span>}
+                    {sem.status === "COMPLETED" ? <Pill tone={GRADE_TONE(c.grade)}>{c.grade}</Pill> : <span className="text-white/55">-</span>}
                   </td>
                 </tr>
               ))}
@@ -170,7 +170,7 @@ function Extras({
           ))}
         </ul>
       ) : (
-        <p className="mt-2 text-sm text-white/45">{empty}</p>
+        <p className="mt-2 text-sm text-white/55">{empty}</p>
       )}
     </div>
   );

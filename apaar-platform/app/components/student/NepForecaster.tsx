@@ -175,7 +175,7 @@ export default function NepForecaster({ studentId }: { studentId: string }) {
           <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="font-semibold text-accent">+{recommended} SWAYAM credits recommended</p>
+                <p className="font-semibold text-accent-soft">+{recommended} SWAYAM credits recommended</p>
                 <p className="text-xs text-white/60">Closes the gap through approved MOOCs</p>
               </div>
               <Button
@@ -185,7 +185,7 @@ export default function NepForecaster({ studentId }: { studentId: string }) {
                 onClick={() => setPlanSwayam(planSwayam ? 0 : recommended)}
               >
                 {planSwayam ? (
-                  <CheckCircle2 width={16} height={16} className={`${ICON} text-accent`} />
+                  <CheckCircle2 width={16} height={16} className={`${ICON} text-accent-soft`} />
                 ) : (
                   <Plus width={16} height={16} className={ICON} />
                 )}

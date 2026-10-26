@@ -18,6 +18,8 @@ export const EN = {
   "lang.label": "Language",
 
   "nav.portals": "Portals",
+  "a11y.skip": "Skip to content",
+  "a11y.close": "Close",
   "nav.admin": "College & AICTE",
   "nav.student": "Digital Twin",
   "nav.employer": "Smart QR Verify",
@@ -193,6 +195,8 @@ export const HI: Record<Key, string> = {
   "lang.label": "भाषा",
 
   "nav.portals": "पोर्टल",
+  "a11y.skip": "सामग्री पर जाएँ",
+  "a11y.close": "बंद करें",
   "nav.admin": "कॉलेज और AICTE",
   "nav.student": "डिजिटल ट्विन",
   "nav.employer": "स्मार्ट QR सत्यापन",

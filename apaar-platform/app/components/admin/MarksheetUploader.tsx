@@ -97,7 +97,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
             }}
             className="rounded-xl border border-dashed border-white/25 bg-white/[0.03] p-5 text-center"
           >
-            <UploadCloud width={16} height={16} className="mx-auto h-7 w-7 shrink-0 text-accent" />
+            <UploadCloud width={16} height={16} className="mx-auto h-7 w-7 shrink-0 text-accent-soft" />
             <p className="mt-2 text-sm text-white/75">Drop a CSV here, or</p>
             <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} aria-label="Choose a CSV file" />
             <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -144,7 +144,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
                   <li key={m.source} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
                     <span className="font-mono text-xs text-white/75">{m.source}</span>
                     <span className="flex items-center gap-2">
-                      <span aria-hidden="true" className="text-white/40">→</span>
+                      <span aria-hidden="true" className="text-white/55">→</span>
                       <span className="font-medium">{m.target ?? "unmapped"}</span>
                       <Pill tone={m.method === "alias" ? "accent" : m.method === "fuzzy" ? "amber" : "neutral"}>
                         {m.method === "unmapped" ? "ignored" : `${Math.round(m.confidence * 100)}%`}

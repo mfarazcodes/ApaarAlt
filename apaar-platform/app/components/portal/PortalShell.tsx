@@ -78,6 +78,7 @@ export default async function PortalShell({
   return (
     <I18nProvider lang={lang}>
     <div className="min-h-screen p-3 sm:p-5">
+      <a href="#main-content" className="sr-only rounded-xl bg-paper px-4 py-2 text-sm font-semibold text-deep focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]">{translate(lang, "a11y.skip")}</a>
       <div className="relative mx-auto max-w-[1400px] overflow-hidden rounded-[28px] bg-deep text-white">
         <Backdrop />
 
@@ -110,6 +111,7 @@ export default async function PortalShell({
           </div>
         </header>
 
+        <main id="main-content" tabIndex={-1} className="outline-none">
         {session && (
           <div className="relative z-10 px-4 pt-4 sm:px-8">
             <SessionBar name={session.name} roleLabel={translate(lang, `role.${session.role}`)} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
@@ -124,6 +126,7 @@ export default async function PortalShell({
           </div>
           {children}
         </div>
+        </main>
       </div>
     </div>
     </I18nProvider>

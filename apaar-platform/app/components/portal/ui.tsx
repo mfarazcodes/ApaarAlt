@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useT } from "./I18n";
 
 /** Every icon in the portals is sized with this so nothing can expand to full width. */
 export const ICON = "h-4 w-4 shrink-0";
@@ -30,7 +31,7 @@ export function SectionTitle({ eyebrow, title, hint }: { eyebrow?: string; title
 type Tone = "accent" | "red" | "amber" | "neutral" | "blue";
 
 const TONES: Record<Tone, string> = {
-  accent: "bg-accent/15 text-accent",
+  accent: "bg-accent/15 text-accent-soft",
   red: "bg-red-500/15 text-red-300",
   amber: "bg-amber-400/15 text-amber-300",
   blue: "bg-sky-400/15 text-sky-300",
@@ -200,6 +201,7 @@ export function Modal({
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const { t } = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -207,6 +209,23 @@ export function Modal({
     panel.current?.focus();
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      if (e.key !== "Tab" || !panel.current) return;
+      // Keep Tab inside the dialog: wrap from the last control to the first and back.
+      const controls = [...panel.current.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute("disabled"));
+      if (controls.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const here = document.activeElement;
+      if (e.shiftKey && (here === first || here === panel.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && here === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -228,7 +247,7 @@ export function Modal({
       >
         <div className="flex items-start justify-between gap-4">
           <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-          <button type="button" aria-label="Close" onClick={onClose} className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white">
+          <button type="button" aria-label={t("a11y.close")} onClick={onClose} className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white">
             <X width={16} height={16} className={ICON} />
           </button>
         </div>
@@ -248,4 +267,4 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 export const inputClass =
-  "w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+  "w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/55 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";

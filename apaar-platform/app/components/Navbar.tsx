@@ -25,7 +25,7 @@ export default function Navbar() {
         <div className="relative">
           <div className={`${pill} flex items-center gap-2.5 p-1.5 pr-1.5`}>
             <Link href="/" className="flex items-center gap-2.5 pl-1.5">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-deep text-accent">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-deep text-accent-soft">
                 <ShieldCheck width={16} height={16} className="h-4 w-4 shrink-0" />
               </span>
               <span className="text-[17px] font-semibold tracking-tight text-deep">

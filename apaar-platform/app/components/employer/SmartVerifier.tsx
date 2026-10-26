@@ -20,7 +20,7 @@ interface Catalog {
 }
 
 const STATUS_VIEW: Record<CredentialStatus, { tone: "accent" | "red" | "amber" | "neutral"; Icon: typeof CheckCircle2; text: string }> = {
-  AUTHENTIC: { tone: "accent", Icon: CheckCircle2, text: "text-accent" },
+  AUTHENTIC: { tone: "accent", Icon: CheckCircle2, text: "text-accent-soft" },
   REVOKED: { tone: "red", Icon: XCircle, text: "text-red-300" },
   SUPERSEDED: { tone: "amber", Icon: RefreshCw, text: "text-amber-300" },
   EXPIRED: { tone: "amber", Icon: Hourglass, text: "text-amber-300" },
@@ -243,10 +243,10 @@ export default function SmartVerifier() {
                       className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-left text-sm transition hover:bg-white/[0.08] disabled:opacity-50"
                     >
                       <span className="flex items-center gap-2.5">
-                        <QrCode width={16} height={16} className={`${ICON} text-accent`} />
+                        <QrCode width={16} height={16} className={`${ICON} text-accent-soft`} />
                         {s.label}
                       </span>
-                      <span className="font-mono text-[11px] text-white/45">{s.cid}</span>
+                      <span className="font-mono text-[11px] text-white/55">{s.cid}</span>
                     </button>
                   </li>
                 ))}
@@ -270,7 +270,7 @@ export default function SmartVerifier() {
 
         {!result && !error && (
           <div className="grid place-items-center rounded-xl border border-dashed border-white/15 px-6 py-16 text-center">
-            <QrCode width={16} height={16} className="mb-4 h-10 w-10 shrink-0 text-white/35" />
+            <QrCode width={16} height={16} className="mb-4 h-10 w-10 shrink-0 text-white/50" />
             <p className="text-sm text-white/65">{t("ver.nothing")}</p>
           </div>
         )}
@@ -342,7 +342,7 @@ export default function SmartVerifier() {
                       {c.passed === null ? (
                         <span className="grid h-4 w-4 place-items-center rounded-full border border-dashed border-white/40 text-[9px] text-white/50">–</span>
                       ) : c.passed ? (
-                        <CheckCircle2 width={16} height={16} className={`${ICON} text-accent`} />
+                        <CheckCircle2 width={16} height={16} className={`${ICON} text-accent-soft`} />
                       ) : (
                         <XCircle width={16} height={16} className={`${ICON} text-red-300`} />
                       )}

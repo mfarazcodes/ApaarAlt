@@ -65,7 +65,7 @@ export default function DisputeInbox() {
 
       {rows.length === 0 ? (
         <div className="grid place-items-center rounded-xl border border-dashed border-white/15 px-6 py-10 text-center text-sm text-white/55">
-          <Inbox width={16} height={16} className="mb-3 h-6 w-6 shrink-0 text-white/35" />
+          <Inbox width={16} height={16} className="mb-3 h-6 w-6 shrink-0 text-white/50" />
           No disputes yet. They appear here when a student raises one.
         </div>
       ) : (

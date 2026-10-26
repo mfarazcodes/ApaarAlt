@@ -110,7 +110,7 @@ export default function SkillGapMap({ studentId }: { studentId: string }) {
                 <li key={s.skill} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="flex items-start justify-between gap-2">
                     <p className="flex items-center gap-2 text-sm font-medium">
-                      <Icon width={16} height={16} className={`${ICON} ${s.status === "COVERED" ? "text-accent" : "text-white/45"}`} />
+                      <Icon width={16} height={16} className={`${ICON} ${s.status === "COVERED" ? "text-accent-soft" : "text-white/55"}`} />
                       {s.label}
                     </p>
                     <Pill tone={st.tone}>{st.label}</Pill>

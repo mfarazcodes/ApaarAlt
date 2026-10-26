@@ -112,7 +112,7 @@ export default function ConsentPhone({
 
         <div className="h-56 space-y-2 overflow-y-auto rounded-2xl bg-white/[0.05] p-3" aria-live="polite">
           {thread.length === 0 && (
-            <p className="grid h-full place-items-center text-center text-xs text-white/45">
+            <p className="grid h-full place-items-center text-center text-xs text-white/55">
               <span><MessageCircle width={16} height={16} className="mx-auto mb-2 h-5 w-5 shrink-0" />No messages yet</span>
             </p>
           )}

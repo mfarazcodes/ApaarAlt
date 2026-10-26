@@ -46,7 +46,7 @@ export default function LoginPicker({ personas, next }: { personas: Persona[]; n
             >
               <span className="flex items-center justify-between gap-3">
                 <Pill tone="accent">{t(`role.${p.role}`)}</Pill>
-                <ArrowRight width={16} height={16} className={`${ICON} text-white/45 transition group-hover:translate-x-0.5 group-hover:text-accent`} />
+                <ArrowRight width={16} height={16} className={`${ICON} text-white/55 transition group-hover:translate-x-0.5 group-hover:text-accent-soft`} />
               </span>
               <span className="mt-3 text-lg font-semibold tracking-tight">{p.name}</span>
               <span className="mt-1 text-sm text-white/60">{busy === p.id ? t("login.signingIn") : t(`persona.${p.id}`)}</span>
