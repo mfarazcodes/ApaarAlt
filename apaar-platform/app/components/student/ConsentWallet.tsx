@@ -1,20 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, Download, Lock, ShieldAlert, ShieldCheck } from "lucide-react";
-import type { ConsentPurposes, NogenReceipt, ShareRequest, ShareScope, StudentConsentLedger, Verifier } from "@/lib/consentEngine";
+import { useState } from "react";
+import { Download, Printer, ShieldAlert, ShieldCheck } from "lucide-react";
+import type { ConsentPurposes, NogenReceipt, ShareRequest, Verifier } from "@/lib/consentEngine";
 import { NOTICE_ENGLISH, NOTICE_LANGUAGES } from "@/lib/consentNotices";
-import { api, errorText, formatDate } from "../portal/api";
+import { formatDate } from "../portal/api";
 import { useT } from "../portal/I18n";
-import { Button, Card, Eyebrow, Field, ICON, Modal, Notice, Pill, SectionTitle, Toggle, inputClass } from "../portal/ui";
-
-interface WalletResponse {
-  ledger: StudentConsentLedger;
-  verifiers: Verifier[];
-  scopeLabels: Record<ShareScope, string>;
-  chain: { valid: boolean; checked: number };
-  viewer: { role: "STUDENT" | "GUARDIAN"; name: string };
-}
+import { useToast } from "../portal/Toast";
+import { Button, Card, Eyebrow, Field, ICON, Modal, Notice, Pill, SectionTitle, Skeleton, Toggle, inputClass } from "../portal/ui";
+import ShareDialog from "./ShareDialog";
+import { useWallet } from "./WalletContext";
 
 // label and hint are dictionary keys, so they follow the chosen language.
 const PURPOSES: { key: Exclude<keyof ConsentPurposes, "behavioralTracking">; label: string; hint: string }[] = [
@@ -24,85 +19,52 @@ const PURPOSES: { key: Exclude<keyof ConsentPurposes, "behavioralTracking">; lab
 ];
 
 const DISPUTE_FIELDS = ["Name", "Date of birth", "Guardian name", "Marks or grade", "Credits", "Other"];
-const DURATIONS = [7, 30, 90];
 
 function daysLeft(iso: string): number {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
 }
 
 export default function ConsentWallet() {
-  const [data, setData] = useState<WalletResponse | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [lang, setLang] = useState("en");
+  const { data, error, busy, act } = useWallet();
+  const { t, lang: pageLang } = useT();
+  const toast = useToast();
+  // The privacy notice starts in the language of the page.
+  const [noticeLang, setNoticeLang] = useState<string>(pageLang);
   const [optOutOpen, setOptOutOpen] = useState(false);
   const [optOutError, setOptOutError] = useState("");
   const [disputeOpen, setDisputeOpen] = useState(false);
+  const [disputeError, setDisputeError] = useState("");
   const [dispute, setDispute] = useState({ field: DISPUTE_FIELDS[0], claimedValue: "", reason: "" });
-  // What the next share will contain. The student chooses scopes and duration before switching a verifier on.
-  const [scopes, setScopes] = useState<ShareScope[]>(["DEGREE_STATUS", "INTERNSHIP_STATUS", "CGPA_BAND", "EOA_STATUS"]);
-  const [days, setDays] = useState(30);
-  const { t } = useT();
-
-  const load = useCallback(async () => {
-    try {
-      setData(await api<WalletResponse>("/api/consent"));
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }, []);
-
-  // Requests arrive from another tab, so refresh on a timer and when the tab regains focus.
-  useEffect(() => {
-    const first = setTimeout(load, 0);
-    const timer = setInterval(load, 5000);
-    window.addEventListener("focus", load);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-      window.removeEventListener("focus", load);
-    };
-  }, [load]);
-
-  /** Returns true when the server accepted the change. */
-  async function act(body: Record<string, unknown>, onError: (m: string) => void = setError): Promise<boolean> {
-    setBusy(true);
-    setError("");
-    try {
-      await api("/api/consent", body);
-      await load();
-      return true;
-    } catch (e) {
-      onError(errorText(e));
-      await load();
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [shareFor, setShareFor] = useState<Verifier | null>(null);
+  const [shareError, setShareError] = useState("");
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   if (!data) {
     return (
       <Card>
-        <SectionTitle eyebrow={t("wallet.eyebrow")} title={t("wallet.title")} />
-        {error ? <Notice tone="red">{error}</Notice> : <p className="text-sm text-white/60">{t("wallet.loading")}</p>}
+        <SectionTitle title={t("wallet.title")} />
+        {error ? (
+          <Notice tone="red">{error}</Notice>
+        ) : (
+          <div role="status" aria-label={t("wallet.loading")} className="space-y-3">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+          </div>
+        )}
       </Card>
     );
   }
 
-  const { ledger, verifiers, scopeLabels, viewer } = data;
+  const { ledger, verifiers, viewer } = data;
   const isGuardian = viewer.role === "GUARDIAN";
   const optedOut = ledger.apaarStatus === "NOGEN_OPTED_OUT";
-  const language = NOTICE_LANGUAGES.find((l) => l.code === lang) ?? NOTICE_LANGUAGES[0];
+  const language = NOTICE_LANGUAGES.find((l) => l.code === noticeLang) ?? NOTICE_LANGUAGES[0];
   const pending = ledger.requests.filter((r) => r.status === "PENDING");
   const needsGuardian = ledger.isMinor && ledger.guardian.coSign !== "SIGNED";
   const locked = busy || optedOut || isGuardian;
 
-  function toggleScope(s: ShareScope) {
-    setScopes((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
-  }
-
-  function downloadReceipt(r: NogenReceipt) {
+  function downloadReceiptJson(r: NogenReceipt) {
     const url = URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url;
@@ -112,9 +74,11 @@ export default function ConsentWallet() {
   }
 
   async function submitDispute() {
-    if (await act({ action: "RAISE_DISPUTE", ...dispute })) {
+    setDisputeError("");
+    if (await act({ action: "RAISE_DISPUTE", ...dispute }, setDisputeError)) {
       setDisputeOpen(false);
       setDispute({ field: DISPUTE_FIELDS[0], claimedValue: "", reason: "" });
+      toast(t("wallet.toast.reported"));
     }
   }
 
@@ -124,13 +88,22 @@ export default function ConsentWallet() {
     if (await act({ action: "TOGGLE_OPT_OUT", optOut: true }, setOptOutError)) setOptOutOpen(false);
   }
 
+  async function confirmShare(scopes: string[], days: number) {
+    if (!shareFor) return;
+    setShareError("");
+    if (await act({ action: "GRANT_SHARE", verifierId: shareFor.id, scopes, days }, setShareError)) {
+      toast(t("share.toast", { name: shareFor.name, date: formatDate(new Date(Date.now() + days * 86_400_000).toISOString()) }));
+      setShareFor(null);
+    }
+  }
+
+  async function stopShare(shareId: string, name: string) {
+    if (await act({ action: "REVOKE_SHARE", shareId })) toast(t("share.stopToast", { name }));
+  }
+
   return (
     <Card>
-      <SectionTitle
-        eyebrow={t("wallet.eyebrow")}
-        title={isGuardian ? t("wallet.guardianTitle", { name: ledger.studentName }) : t("wallet.title")}
-        hint={t("wallet.hint")}
-      />
+      <SectionTitle title={isGuardian ? t("wallet.guardianTitle", { name: ledger.studentName }) : t("wallet.title")} hint={t("wallet.hint")} />
 
       {error && (
         <div className="mb-4">
@@ -144,19 +117,13 @@ export default function ConsentWallet() {
         ) : (
           <Pill tone="accent"><ShieldCheck width={16} height={16} className="h-3.5 w-3.5 shrink-0" />{t("wallet.apaarActive")}</Pill>
         )}
-        <Pill tone={data.chain.valid ? "accent" : "red"}>
-          <BadgeCheck width={16} height={16} className="h-3.5 w-3.5 shrink-0" />
-          {data.chain.valid ? t("wallet.auditVerified", { n: data.chain.checked }) : t("wallet.auditBroken", { n: data.chain.checked })}
-        </Pill>
-        <Pill>{t("wallet.identity", { value: ledger.identityDisplay })}</Pill>
         {ledger.isMinor && <Pill tone="amber">{t("wallet.under18")}</Pill>}
+        <span className="text-sm text-white/65">{t("wallet.never")}</span>
       </div>
 
       {needsGuardian && (
         <div className="mb-5">
-          <Notice tone="amber">
-            {isGuardian ? t("wallet.minorGuardian", { name: ledger.studentName }) : t("wallet.minorSelf")}
-          </Notice>
+          <Notice tone="amber">{isGuardian ? t("wallet.minorGuardian", { name: ledger.studentName }) : t("wallet.minorSelf")}</Notice>
         </div>
       )}
 
@@ -169,50 +136,25 @@ export default function ConsentWallet() {
               <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 px-3.5 py-3">
                 <div>
                   <p className="text-sm font-medium">{ledger.guardian.guardianName}</p>
-                  <p className="text-xs text-white/60">
+                  <p className="text-xs text-white/65">
                     {ledger.guardian.coSign === "SIGNED" ? t("wallet.signed", { date: formatDate(ledger.guardian.signedAt ?? ledger.lastUpdated) }) : t("wallet.notSigned")}
                     {!isGuardian && t("wallet.onlyGuardian")}
                   </p>
                 </div>
-                <Toggle
-                  checked={ledger.guardian.coSign === "SIGNED"}
-                  disabled={busy || !isGuardian}
-                  label={t("wallet.guardianToggle")}
-                  onChange={(on) => act({ action: "GUARDIAN_COSIGN", sign: on })}
-                />
+                <Toggle checked={ledger.guardian.coSign === "SIGNED"} disabled={busy || !isGuardian} label={t("wallet.guardianToggle")} onChange={(on) => act({ action: "GUARDIAN_COSIGN", sign: on })} />
               </div>
             </div>
           )}
 
-          {/* time-bound sharing */}
-          <div>
-            <Eyebrow>{t("wallet.sharing")}</Eyebrow>
-            {!isGuardian && (
-              <fieldset className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
-                <legend className="px-1 text-xs text-white/60">{t("wallet.nextShare")}</legend>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {(Object.keys(scopeLabels) as ShareScope[]).map((s) => (
-                    <label key={s} className="flex items-center gap-2 text-sm text-white/80">
-                      <input type="checkbox" checked={scopes.includes(s)} onChange={() => toggleScope(s)} className="h-4 w-4 accent-[var(--accent)]" />
-                      {t(`scope.${s}`)}
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-sm text-white/80">
-                  <label htmlFor="share-days">{t("wallet.for")}</label>
-                  <select id="share-days" value={days} onChange={(e) => setDays(Number(e.target.value))} className={`${inputClass} !w-auto !py-1.5`}>
-                    {DURATIONS.map((d) => <option key={d} value={d} className="text-black">{t("wallet.days", { n: d })}</option>)}
-                  </select>
-                </div>
-              </fieldset>
-            )}
-
-            {!isGuardian && pending.length > 0 && (
-              <ul className="mt-3 space-y-2" aria-label="Pending requests">
+          {/* requests waiting for an answer */}
+          {!isGuardian && pending.length > 0 && (
+            <div>
+              <Eyebrow>{t("wallet.requests")}</Eyebrow>
+              <ul className="mt-3 space-y-2" aria-label={t("wallet.requests")}>
                 {pending.map((r: ShareRequest) => (
                   <li key={r.requestId} className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-3.5">
                     <p className="text-sm font-semibold text-amber-200">{t("wallet.requestAsking", { name: r.verifierName })}</p>
-                    <p className="mt-1 text-xs text-white/70">{r.scopes.map((s) => scopeLabels[s]).join(", ")} · {t("wallet.days", { n: r.days })} · {r.purpose}</p>
+                    <p className="mt-1 text-xs text-white/75">{r.scopes.map((s) => t(`scope.${s}`)).join(", ")} · {t("wallet.days", { n: r.days })} · {r.purpose}</p>
                     <div className="mt-3 flex gap-2">
                       <Button size="sm" variant="primary" disabled={busy} onClick={() => act({ action: "RESPOND_REQUEST", requestId: r.requestId, approve: true, via: "APP" })}>{t("wallet.allow", { n: r.days })}</Button>
                       <Button size="sm" disabled={busy} onClick={() => act({ action: "RESPOND_REQUEST", requestId: r.requestId, approve: false, via: "APP" })}>{t("wallet.refuse")}</Button>
@@ -220,8 +162,12 @@ export default function ConsentWallet() {
                   </li>
                 ))}
               </ul>
-            )}
+            </div>
+          )}
 
+          {/* who can see the record */}
+          <div>
+            <Eyebrow>{t("wallet.sharing")}</Eyebrow>
             <ul className="mt-3 divide-y divide-white/10 rounded-xl border border-white/10">
               {verifiers.map((v) => {
                 const share = ledger.shares.find((s) => s.verifierId === v.id && s.status === "ACTIVE");
@@ -229,7 +175,7 @@ export default function ConsentWallet() {
                   <li key={v.id} className="flex items-center justify-between gap-3 px-3.5 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{v.name}</p>
-                      <p className="text-xs text-white/60">
+                      <p className="text-xs text-white/65">
                         {share ? (
                           <>
                             {share.effective ? t("wallet.sharingNow") : <span className="font-semibold text-amber-300">{t("wallet.paused")}</span>} {share.scopes.map((s) => t(`scope.${s}`)).join(", ")} · {t("wallet.ends", { date: formatDate(share.expiresAt), n: daysLeft(share.expiresAt) })}
@@ -239,20 +185,24 @@ export default function ConsentWallet() {
                         )}
                       </p>
                     </div>
-                    <Toggle
-                      checked={Boolean(share)}
-                      disabled={locked || (!share && scopes.length === 0)}
-                      label={t("wallet.shareWith", { name: v.name })}
-                      onChange={(on) => act(on ? { action: "GRANT_SHARE", verifierId: v.id, scopes, days } : { action: "REVOKE_SHARE", shareId: share?.shareId })}
-                    />
+                    {share ? (
+                      <Button size="sm" disabled={locked} onClick={() => stopShare(share.shareId, v.name)}>
+                        <span aria-hidden="true">{t("share.stop")}</span>
+                        <span className="sr-only">{t("share.stopWith", { name: v.name })}</span>
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="primary" disabled={locked} onClick={() => { setShareError(""); setShareFor(v); }}>
+                        <span aria-hidden="true">{t("share.button")}</span>
+                        <span className="sr-only">{t("wallet.shareWith", { name: v.name })}</span>
+                      </Button>
+                    )}
                   </li>
                 );
               })}
             </ul>
-            {!isGuardian && scopes.length === 0 && <p className="mt-2 text-xs text-amber-300">{t("wallet.pickOne")}</p>}
           </div>
 
-          {/* purposes */}
+          {/* what the college may do */}
           <div>
             <Eyebrow>{t("wallet.purposes")}</Eyebrow>
             <ul className="mt-3 divide-y divide-white/10 rounded-xl border border-white/10">
@@ -260,22 +210,11 @@ export default function ConsentWallet() {
                 <li key={p.key} className="flex items-center justify-between gap-3 px-3.5 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{t(p.label)}</p>
-                    <p className="text-xs text-white/60">{t(p.hint)}</p>
+                    <p className="text-xs text-white/65">{t(p.hint)}</p>
                   </div>
                   <Toggle checked={ledger.purposes[p.key]} disabled={locked} label={t(p.label)} onChange={(on) => act({ action: "UPDATE_PURPOSE", purpose: p.key, allow: on })} />
                 </li>
               ))}
-              <li className="flex items-center justify-between gap-3 px-3.5 py-3">
-                <div className="min-w-0">
-                  <p className="flex items-center gap-2 text-sm font-medium">
-                    <Lock width={16} height={16} className={`${ICON} text-white/60`} />
-                    {t("wallet.p.track")}
-                    <Pill tone="red">{t("wallet.p.track.off")}</Pill>
-                  </p>
-                  <p className="text-xs text-white/60">{t("wallet.p.track.hint")}</p>
-                </div>
-                <Toggle checked={false} disabled label="Behavioural tracking (locked off)" onChange={() => {}} />
-              </li>
             </ul>
           </div>
         </div>
@@ -286,7 +225,7 @@ export default function ConsentWallet() {
             <div className="flex items-center justify-between gap-3">
               <Eyebrow>{t("wallet.notice")}</Eyebrow>
               <label className="sr-only" htmlFor="notice-lang">{t("wallet.noticeLanguage")}</label>
-              <select id="notice-lang" value={lang} onChange={(e) => setLang(e.target.value)} className={`${inputClass} !w-auto !py-1.5`}>
+              <select id="notice-lang" value={noticeLang} onChange={(e) => setNoticeLang(e.target.value)} className={`${inputClass} !w-auto !py-1.5`}>
                 {NOTICE_LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code} className="text-black">
                     {l.name} · {l.native}
@@ -299,12 +238,11 @@ export default function ConsentWallet() {
                 {language.text ?? NOTICE_ENGLISH}
               </p>
               {!language.text && <p className="mt-2 text-xs text-amber-300">{t("wallet.noticePending", { name: language.name })}</p>}
-              {language.text && language.code !== "en" && <p className="mt-2 text-xs text-white/50">{t("wallet.noticeDraft")}</p>}
+              {language.text && language.code !== "en" && <p className="mt-2 text-xs text-white/60">{t("wallet.noticeDraft")}</p>}
             </div>
-            <p className="mt-2 text-xs text-white/50">{t("wallet.noticeLangs")}</p>
           </div>
 
-          {/* NOGEN + dispute (the student's own choices) */}
+          {/* the student's own choices */}
           {!isGuardian && (
             <div className="grid gap-3 sm:grid-cols-2">
               {optedOut ? (
@@ -312,27 +250,29 @@ export default function ConsentWallet() {
               ) : (
                 <Button disabled={busy} variant="danger" onClick={() => { setOptOutError(""); setOptOutOpen(true); }}>{t("wallet.optOut")}</Button>
               )}
-              <Button onClick={() => setDisputeOpen(true)}>{t("wallet.dispute")}</Button>
+              <Button onClick={() => { setDisputeError(""); setDisputeOpen(true); }}>{t("wallet.dispute")}</Button>
             </div>
           )}
 
           {ledger.nogenReceipt && (
             <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-4">
               <p className="text-sm font-semibold text-red-200">{t("wallet.receipt", { id: ledger.nogenReceipt.receiptId })}</p>
-              <p className="mt-1 text-xs text-white/70">{ledger.nogenReceipt.statement}</p>
-              <div className="mt-3"><Button size="sm" onClick={() => downloadReceipt(ledger.nogenReceipt as NogenReceipt)}><Download width={16} height={16} className={ICON} />{t("wallet.downloadReceipt")}</Button></div>
+              <p className="mt-1 text-xs text-white/75">{ledger.nogenReceipt.statement}</p>
+              <div className="mt-3">
+                <Button size="sm" onClick={() => setReceiptOpen(true)}>{t("wallet.viewReceipt")}</Button>
+              </div>
             </div>
           )}
 
           {ledger.disputes.length > 0 && (
             <div>
               <Eyebrow>{t("wallet.disputes")}</Eyebrow>
-              <ul className="mt-3 space-y-2" aria-label="Disputes">
+              <ul className="mt-3 space-y-2" aria-label={t("wallet.disputes")}>
                 {ledger.disputes.map((d) => (
                   <li key={d.ticketId} className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3 text-sm">
-                    <span className="font-mono text-xs text-white/60">{d.ticketId}</span> · {d.field}{" "}
+                    <span className="font-mono text-xs text-white/65">{d.ticketId}</span> · {t(`wallet.field.${d.field}`)}{" "}
                     <Pill tone={d.status === "OPEN" ? "amber" : d.status === "RESOLVED" ? "accent" : "red"} className="ml-1">{d.status === "OPEN" ? t("wallet.d.open") : d.status === "RESOLVED" ? t("wallet.d.resolved") : t("wallet.d.rejected")}</Pill>
-                    <p className="mt-1 text-xs text-white/60">{d.status === "OPEN" ? t("wallet.d.ack", { date: formatDate(d.acknowledgeBy) }) : (d.resolution ?? "")}</p>
+                    <p className="mt-1 text-xs text-white/65">{d.status === "OPEN" ? t("wallet.d.ack", { date: formatDate(d.acknowledgeBy) }) : (d.resolution ?? "")}</p>
                   </li>
                 ))}
               </ul>
@@ -341,10 +281,18 @@ export default function ConsentWallet() {
         </div>
       </div>
 
+      <ShareDialog
+        open={shareFor !== null}
+        onClose={() => setShareFor(null)}
+        title={t("share.titleFor", { name: shareFor?.name ?? "" })}
+        confirmLabel={t("share.confirm")}
+        busy={busy}
+        error={shareError}
+        onConfirm={confirmShare}
+      />
+
       <Modal open={optOutOpen} onClose={() => setOptOutOpen(false)} title={t("wallet.optOutModal.title")}>
-        <p className="text-sm text-white/75">
-          {t("wallet.optOutModal.body")}
-        </p>
+        <p className="text-sm text-white/75">{t("wallet.optOutModal.body")}</p>
         {optOutError && <div className="mt-4"><Notice tone="red">{optOutError}</Notice></div>}
         <div className="mt-5 flex justify-end gap-2">
           <Button onClick={() => setOptOutOpen(false)}>{t("wallet.keep")}</Button>
@@ -353,8 +301,8 @@ export default function ConsentWallet() {
       </Modal>
 
       <Modal open={disputeOpen} onClose={() => setDisputeOpen(false)} title={t("wallet.disputeModal.title")}>
-        <p className="mb-4 text-sm text-white/70">{t("wallet.disputeModal.intro")}</p>
-        {error && <div className="mb-3"><Notice tone="red">{error}</Notice></div>}
+        <p className="mb-4 text-sm text-white/75">{t("wallet.disputeModal.intro")}</p>
+        {disputeError && <div className="mb-3"><Notice tone="red">{disputeError}</Notice></div>}
         <div className="space-y-4">
           <Field label={t("wallet.disputeField")}>
             <select value={dispute.field} onChange={(e) => setDispute({ ...dispute, field: e.target.value })} className={inputClass}>
@@ -362,10 +310,10 @@ export default function ConsentWallet() {
             </select>
           </Field>
           <Field label={t("wallet.disputeCorrect")}>
-            <input value={dispute.claimedValue} onChange={(e) => setDispute({ ...dispute, claimedValue: e.target.value })} className={inputClass} placeholder="Correct value" />
+            <input value={dispute.claimedValue} onChange={(e) => setDispute({ ...dispute, claimedValue: e.target.value })} className={inputClass} placeholder={t("wallet.placeholder.correct")} />
           </Field>
           <Field label={t("wallet.disputeWhy")}>
-            <textarea value={dispute.reason} onChange={(e) => setDispute({ ...dispute, reason: e.target.value })} rows={3} className={inputClass} placeholder="Briefly explain" />
+            <textarea value={dispute.reason} onChange={(e) => setDispute({ ...dispute, reason: e.target.value })} rows={3} className={inputClass} placeholder={t("wallet.placeholder.why")} />
           </Field>
         </div>
         <div className="mt-5 flex justify-end gap-2">
@@ -373,6 +321,37 @@ export default function ConsentWallet() {
           <Button variant="primary" disabled={busy || !dispute.reason.trim()} onClick={submitDispute}>{t("wallet.submit")}</Button>
         </div>
       </Modal>
+
+      {ledger.nogenReceipt && (
+        <Modal open={receiptOpen} onClose={() => setReceiptOpen(false)} title={t("wallet.receiptTitle")}>
+          {/* A paper-style receipt. The print stylesheet prints only this block. */}
+          <div className="print-area rounded-xl bg-white p-5 text-black">
+            <h3 className="text-lg font-semibold">{t("wallet.receiptTitle")}</h3>
+            <p className="mt-2 text-sm">{t("wallet.receipt", { id: ledger.nogenReceipt.receiptId })}</p>
+            <p className="text-sm">{t("wallet.receiptIssued", { date: formatDate(ledger.nogenReceipt.issuedAt) })}</p>
+            <p className="mt-3 text-sm">{ledger.nogenReceipt.statement}</p>
+            <p className="mt-3 text-sm">{t("wallet.receiptShares", { n: ledger.nogenReceipt.sharesRevoked })}</p>
+            <ul className="mt-3 list-disc pl-5 text-sm">
+              {ledger.nogenReceipt.legalBasis.map((l) => <li key={l}>{l}</li>)}
+            </ul>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <Button variant="primary" onClick={() => window.print()}>
+              <Printer width={16} height={16} className={ICON} />
+              {t("wallet.print")}
+            </Button>
+            <details className="text-sm text-white/75">
+              <summary className="cursor-pointer rounded-lg px-2 py-1.5 hover:bg-white/10">{t("wallet.more")}</summary>
+              <div className="mt-2">
+                <Button size="sm" onClick={() => downloadReceiptJson(ledger.nogenReceipt as NogenReceipt)}>
+                  <Download width={16} height={16} className={ICON} />
+                  {t("wallet.receiptJson")}
+                </Button>
+              </div>
+            </details>
+          </div>
+        </Modal>
+      )}
     </Card>
   );
 }

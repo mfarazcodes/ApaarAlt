@@ -69,7 +69,6 @@ export default function SkillGapMap({ studentId }: { studentId: string }) {
   return (
     <Card>
       <SectionTitle
-        eyebrow={t("skill.eyebrow")}
         title={t("skill.title")}
         hint={t("skill.hint")}
       />

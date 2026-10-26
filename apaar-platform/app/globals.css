@@ -136,3 +136,21 @@ body {
     scroll-behavior: auto;
   }
 }
+
+/* Printing a receipt prints only the receipt block. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: fixed;
+    inset: 0;
+    padding: 2rem;
+    background: #fff;
+    color: #000;
+  }
+}

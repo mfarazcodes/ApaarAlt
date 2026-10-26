@@ -1,10 +1,7 @@
-import ConsentWallet from "../components/student/ConsentWallet";
-import DigitalTwinTimeline from "../components/student/DigitalTwinTimeline";
-import NepForecaster from "../components/student/NepForecaster";
-import SkillGapMap from "../components/student/SkillGapMap";
-import SmartQrCreator from "../components/student/SmartQrCreator";
 import PortalShell from "../components/portal/PortalShell";
 import { Notice } from "../components/portal/ui";
+import StudentHub from "../components/student/StudentHub";
+import { demoMode } from "@/lib/config";
 import { translate } from "@/lib/i18n";
 import { currentLang } from "@/lib/lang-server";
 import { currentSession } from "@/lib/session-server";
@@ -14,7 +11,7 @@ export default async function StudentPage() {
   const lang = await currentLang();
   const session = await currentSession();
   const isGuardian = session?.role === "GUARDIAN";
-  // Students with an academic record get the twin. The guardian sees the consent side only.
+  // Students with an academic record get the record and plan tabs. The guardian sees the sharing side only.
   const studentId = session?.studentId ?? "";
   const hasTwin = !isGuardian && twinFor(studentId) !== null;
   const profile = profileFor(studentId);
@@ -26,18 +23,9 @@ export default async function StudentPage() {
       subtitle={translate(lang, isGuardian ? "student.guardianSubtitle" : "student.subtitle")}
     >
       <div className="space-y-6">
-        {hasTwin ? (
-          <>
-            {profile && <p className="text-sm text-white/65">{profile.label} · {profile.roll} · {profile.story}</p>}
-            <DigitalTwinTimeline studentId={studentId} />
-            <NepForecaster studentId={studentId} />
-            <SkillGapMap studentId={studentId} />
-          </>
-        ) : (
-          !isGuardian && <Notice tone="blue">{translate(lang, "student.noRecord")}</Notice>
-        )}
-        {hasTwin && <SmartQrCreator />}
-        <ConsentWallet />
+        {!hasTwin && !isGuardian && <Notice tone="blue">{translate(lang, "student.noRecord")}</Notice>}
+        {/* The story line is demo narration, so only a demo deployment shows it. */}
+        <StudentHub studentId={studentId} hasTwin={hasTwin} demoNote={demoMode() && profile ? `${profile.label} · ${profile.roll} · ${profile.story}` : undefined} />
       </div>
     </PortalShell>
   );
