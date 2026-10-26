@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* ── Themable brand colours ─────────────────────────────────────────────
+   The Navbar swaps `data-theme` on <html>; everything below follows it. */
+:root,
+[data-theme="emerald"] {
+  --accent: #10b981;
+  --accent-strong: #059669;
+  --accent-ink: #047857; /* button fill that keeps white text AA-readable */
+  --frame: #2d4a3e;
+  --deep: #14201b;
+  --deep-2: #1b2b25;
+  --paper: #e4e4dc;
+}
+
+[data-theme="cobalt"] {
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-ink: #1d4ed8;
+  --frame: #26405f;
+  --deep: #101a2a;
+  --deep-2: #17243a;
+  --paper: #e1e5ea;
+}
+
+[data-theme="amber"] {
+  --accent: #f59e0b;
+  --accent-strong: #d97706;
+  --accent-ink: #b45309;
+  --frame: #5b4620;
+  --deep: #1c1710;
+  --deep-2: #2a2217;
+  --paper: #ebe5d6;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink: var(--accent-ink);
+  --color-frame: var(--frame);
+  --color-deep: var(--deep);
+  --color-deep-2: var(--deep-2);
+  --color-paper: var(--paper);
+  --font-sans: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--frame);
+  color: var(--deep);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.4s ease;
+}
+
+/* ── Circuit-board data pulses ──────────────────────────────────────────
+   Each pulse path is normalised with pathLength="100", so the same dash
+   pattern works for any trace length. */
+@keyframes circuit-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+.circuit-pulse {
+  stroke-dasharray: 7 93;
+  animation: circuit-flow 5s linear infinite;
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+
+@keyframes node-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.node-ping {
+  animation: node-ping 2s ease-out infinite;
+}
+
+@keyframes radar-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.radar-sweep {
+  transform-origin: 50% 50%;
+  animation: radar-sweep 3.2s linear infinite;
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--r, 0deg));
+  }
+  50% {
+    transform: translateY(-8px) rotate(var(--r, 0deg));
+  }
+}
+
+.float-y {
+  animation: float-y 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .circuit-pulse,
+  .node-ping,
+  .radar-sweep,
+  .float-y {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
