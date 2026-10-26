@@ -33,10 +33,11 @@ export async function GET() {
 
   return NextResponse.json({
     success: true,
-    engine: "AICTE Pre-Flight Fuzzy Matcher v2.5 (Jaro-Winkler + Indic naming + data-discrepancy flags)",
+    engine: "AICTE Pre-Flight Fuzzy Matcher v3.0 (identity confidence + literal API acceptance + discrepancy flags)",
     summary: {
       totalRecords: records.length,
       exactMatches: records.filter((p) => p.analysis.classification === "EXACT_MATCH").length,
+      autoFixable: records.filter((p) => p.analysis.classification === "AUTO_FIXABLE").length,
       softMismatches: records.filter((p) => p.analysis.classification === "SOFT_MISMATCH_REVIEW").length,
       hardRejects: records.filter((p) => p.analysis.classification === "HARD_REJECT").length,
     },

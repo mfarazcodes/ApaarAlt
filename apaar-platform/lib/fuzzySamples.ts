@@ -26,7 +26,7 @@ export const PRESET_AICTE_CASES: PresetCase[] = [
     institution: "Sahyadri College of Engineering",
     erp: { name: "Mohd Faraz", dob: "2004-02-11", gender: "M", guardianName: "Abdul Rahim", source: "ERP" },
     digilocker: { name: "Mohammad Faraz", dob: "2004-02-11", gender: "M", guardianName: "Abdul Rahim", source: "DIGILOCKER" },
-    notes: "Mohd and Mohammad are the same name part. Treated as a spelling variant, not dropped.",
+    notes: "Mohd and Mohammad are the same name part, but the government check compares spelling literally, so the ERP spelling has to change.",
   },
   {
     id: "CASE-03",

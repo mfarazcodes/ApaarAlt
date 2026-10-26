@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Award, Briefcase, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
-import { PROGRAM_TOTAL_CREDITS, STUDENT_PROFILE, TWIN, semesterCreditsEarned, twinTotals } from "@/lib/studentData";
+import { PROGRAM_TOTAL_CREDITS, STUDENT_PROFILE, TWIN, semesterCreditsEarned, semesterSgpa, twinTotals } from "@/lib/studentData";
 import { Card, Eyebrow, ICON, Pill, ProgressBar, SectionTitle } from "../portal/ui";
 
 const GRADE_TONE = (g: string) => (g === "F" ? "red" : g === "O" || g === "A+" ? "accent" : "neutral");
@@ -71,7 +71,7 @@ export default function DigitalTwinTimeline() {
             <span className="text-sm font-normal text-white/60">Year {sem.year}</span>
           </h3>
           <div className="flex items-center gap-2">
-            {sem.sgpa !== undefined && <Pill tone="accent">SGPA {sem.sgpa.toFixed(1)}</Pill>}
+            {semesterSgpa(sem) !== null && <Pill tone="accent">SGPA {semesterSgpa(sem)?.toFixed(2)}</Pill>}
             <Pill>{semesterCreditsEarned(sem)} credits {sem.status === "PLANNED" ? "planned" : "earned"}</Pill>
           </div>
         </div>

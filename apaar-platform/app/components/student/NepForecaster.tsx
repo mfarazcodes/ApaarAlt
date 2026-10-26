@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Lock, Plus } from "lucide-react";
 import type { CreditForecast, NepExitResult } from "@/lib/nadSyncEngine";
-import { PROGRAM_TOTAL_CREDITS, creditsThroughSemester, twinTotals } from "@/lib/studentData";
+import { PROGRAM_TOTAL_CREDITS, creditsThroughSemester, projectedCreditsThrough, twinTotals } from "@/lib/studentData";
 import { api, errorText } from "../portal/api";
 import { Button, Card, Eyebrow, ICON, Notice, Pill, ProgressBar, SectionTitle, Toggle } from "../portal/ui";
 
@@ -17,6 +17,9 @@ export default function NepForecaster() {
   const [error, setError] = useState("");
 
   const earnedAtExit = creditsThroughSemester(exitAfter);
+  const projectedAtExit = projectedCreditsThrough(exitAfter);
+  const isProjection = projectedAtExit > earnedAtExit;
+  const [projection, setProjection] = useState<NepExitResult | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -31,6 +34,17 @@ export default function NepForecaster() {
       live = false;
     };
   }, [earnedAtExit, vocational]);
+
+  useEffect(() => {
+    if (!isProjection) return;
+    let live = true;
+    api<{ result: NepExitResult }>("/api/sync/aicte-nad", { action: "NEP_EXIT", earnedCredits: projectedAtExit, vocationalCredits: vocational ? 4 : 0 })
+      .then((r) => live && setProjection(r.result))
+      .catch((e) => live && setError(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, [isProjection, projectedAtExit, vocational]);
 
   useEffect(() => {
     let live = true;
@@ -82,7 +96,8 @@ export default function NepForecaster() {
               className="mt-3 w-full accent-[var(--accent)]"
             />
             <p className="mt-2 text-sm text-white/70">
-              {earnedAtExit} credits earned{exitAfter > totals.completedThrough && " (assuming planned semesters are cleared)"}
+              {earnedAtExit} credits earned so far
+              {isProjection && ` (semesters up to ${totals.completedThrough} are complete)`}
             </p>
             <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3 text-sm">
               <span className="text-white/75">4 skill / vocational credits done</span>
@@ -113,6 +128,15 @@ export default function NepForecaster() {
               </li>
             ))}
           </ul>
+          {isProjection && projection && (
+            <div className="mt-3 rounded-xl border border-dashed border-sky-300/40 bg-sky-400/5 px-4 py-3 text-sm">
+              <p className="font-semibold text-sky-300">Projection, not eligibility</p>
+              <p className="mt-1 text-white/75">
+                If every planned course up to semester {exitAfter} is cleared you would hold {projectedAtExit} credits
+                {projection.highestEligible ? ` and could qualify for the ${projection.highestEligible.label}.` : ", which is not yet enough for any exit level."}
+              </p>
+            </div>
+          )}
           {nep && <p className="mt-3 text-xs leading-relaxed text-white/55">{nep.reEntry.note}</p>}
         </div>
 

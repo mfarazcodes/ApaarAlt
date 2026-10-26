@@ -1,22 +1,25 @@
 /**
  * Unified AICTE-NAD Sync Engine
- * Solves the critical AICTE bottleneck:
- * Incompatible marksheet formats between disparate college ERPs and the
- * National Academic Depository (NAD) / Academic Bank of Credits (ABC) portal.
+ *
+ * Turns incompatible college ERP marksheets into the credit schema the National Academic Depository
+ * (NAD) / Academic Bank of Credits (ABC) expects.
  *
  * Capabilities:
- * 1. Messy CSV & JSON marksheet parser handling arbitrary legacy ERP column names,
- *    with an inspectable column → NAD field mapping (AI schema mapper).
- * 2. NAD credit standardizer with UGC 10-point letter-grade mapping.
- * 3. Automatic ABC credit accumulation and SGPA/CGPA calculation, plus a diff against
- *    what NAD already holds.
- * 4. Institutional AICTE Approved Intake vs Verified Enrolment compliance recalculation.
- * 5. SWAYAM MOOC credit-cap validator (40%).
- * 6. Lateral-entry syllabus overlap calculator (>= 70%).
- * 7. NEP 2020 Multiple Entry / Exit simulator (Certificate / Diploma / Degree).
+ * 1. Column mapping: an inspectable mapping from arbitrary ERP headers onto NAD fields.
+ * 2. Row validation: every row is checked, and a row that cannot be graded or credited is reported and
+ *    excluded. The engine never invents a grade, a credit value, a course code or a prior record.
+ * 3. SGPA / CGPA from attempt history, with a configurable backlog rule.
+ * 4. Diff against what NAD already holds.
+ * 5. Per-programme AICTE intake compliance, rolled up to the institution.
+ * 6. SWAYAM credit cap, lateral-entry overlap and NEP exit simulation (policy constants below).
  */
 
 import { jaroWinkler } from "./fuzzyMatcher";
+import type { RawRow } from "./csv";
+
+export type { RawRow };
+
+export type LetterGrade = "O" | "A+" | "A" | "B+" | "B" | "C" | "P" | "F";
 
 export interface NADCourseCredit {
   courseCode: string;
@@ -24,47 +27,113 @@ export interface NADCourseCredit {
   courseCategory: "BASIC_SCIENCES" | "CORE_ENGINEERING" | "ELECTIVE" | "HUMANITIES" | "LAB_PRACTICAL";
   creditsRegistered: number;
   creditsEarned: number;
-  letterGrade: "O" | "A+" | "A" | "B+" | "B" | "C" | "P" | "F";
+  letterGrade: LetterGrade;
   gradePoints: number; // 10, 9, 8, 7, 6, 5, 4, 0
 }
 
-export interface NADStudentRecord {
-  studentRoll: string;
-  studentName: string;
-  abcAccountId: string; // ABC account id (a vault-safe label, not a government ID)
-  apaarToken: string;
-  program: string;
-  semester: number;
-  academicYear: string;
-  courses: NADCourseCredit[];
-  semesterCreditsEarned: number;
-  semesterCreditsRegistered: number;
-  sgpa: number;
-  priorAccumulatedCredits: number;
-  priorCgpa: number; // lets a re-sync of the same semester replace it instead of stacking on top
-  updatedCumulativeCredits: number;
-  cgpa: number;
-  nadSyncTimestamp: string;
-  syncStatus: "SYNCED_TO_NAD" | "FLAGGED_PREREQUISITE_DEFICIT" | "PARTIAL_CREDIT";
+/* ── Row validation ──────────────────────────────────────────────────── */
+
+export type RowIssueCode =
+  | "MISSING_GRADE"
+  | "ABSENT"
+  | "INCOMPLETE"
+  | "WITHDRAWN"
+  | "UNPARSEABLE_MARKS"
+  | "MARKS_OUT_OF_RANGE"
+  | "UNKNOWN_GRADE"
+  | "MISSING_COURSE_CODE"
+  | "MISSING_CREDITS"
+  | "UNPARSEABLE_CREDITS"
+  | "MISSING_TITLE"
+  | "GRADE_MISMATCH";
+
+export interface RowIssue {
+  code: RowIssueCode;
+  severity: "BLOCKING" | "WARNING";
+  message: string;
 }
 
-export interface AICTEIntakeCompliance {
-  institutionCode: string;
-  institutionName: string;
-  aicteApprovalReference: string;
-  academicYear: string;
-  approvedIntake: number; // Sanctioned intake approved by AICTE
-  totalErpEnrolled: number;
-  verifiedEnrolment: number; // Students verified with valid APAAR / ABC accounts
-  abcSeededCount: number; // Students whose credits are actively pushed to NAD
-  unverifiedGhostCount: number; // Discrepancy (ERP enrolled without APAAR/NAD verification)
-  enrolmentPercentage: number; // (verifiedEnrolment / approvedIntake) * 100
-  abcSeedingPercentage: number; // (abcSeededCount / approvedIntake) * 100
-  complianceStatus: "HEALTHY_OPTIMAL" | "OVER_INTAKE_PENALTY_RISK" | "UNDER_ENROLMENT_RISK";
-  aicteNotice: string;
+export interface NormalizedRow {
+  courseCode: string | null;
+  courseTitle: string | null;
+  /** Null when any blocking issue was found. The row is then excluded from SGPA and credits. */
+  course: NADCourseCredit | null;
+  issues: RowIssue[];
 }
 
-export type RawRow = Record<string, unknown>;
+export interface RowIssueReport {
+  rowNumber: number; // 1-based position within the student's rows
+  courseCode: string | null;
+  courseTitle: string | null;
+  excluded: boolean;
+  issues: RowIssue[];
+}
+
+/**
+ * Maps an institution's own grade strings onto NAD letter grades. Extend or replace it per institution.
+ * A string that is not here is reported as UNKNOWN_GRADE. It is never guessed.
+ */
+export type GradeScale = Record<string, LetterGrade>;
+
+export const DEFAULT_GRADE_SCALE: GradeScale = {
+  O: "O",
+  OUTSTANDING: "O",
+  "A+": "A+",
+  EXCELLENT: "A+",
+  A: "A",
+  "VERY GOOD": "A",
+  "B+": "B+",
+  GOOD: "B+",
+  B: "B",
+  "ABOVE AVERAGE": "B",
+  C: "C",
+  AVERAGE: "C",
+  P: "P",
+  PASS: "P",
+  F: "F",
+  FAIL: "F",
+  FAILED: "F",
+};
+
+const POINTS: Record<LetterGrade, number> = { O: 10, "A+": 9, A: 8, "B+": 7, B: 6, C: 5, P: 4, F: 0 };
+
+const ABSENT_MARKERS = new Set(["AB", "ABS", "ABSENT", "ABSENTEE"]);
+const INCOMPLETE_MARKERS = new Set(["I", "INC", "INCOMPLETE"]);
+const WITHDRAWN_MARKERS = new Set(["W", "WD", "WITHDRAWN"]);
+
+const blocking = (code: RowIssueCode, message: string): RowIssue => ({ code, severity: "BLOCKING", message });
+const warning = (code: RowIssueCode, message: string): RowIssue => ({ code, severity: "WARNING", message });
+
+/** A marker such as AB or W in a marks or grade column. Returns null when the text is not a marker. */
+function markerIssue(text: string): RowIssue | null {
+  const t = text.trim().toUpperCase();
+  if (ABSENT_MARKERS.has(t)) return blocking("ABSENT", "Student was absent. No grade can be assigned.");
+  if (INCOMPLETE_MARKERS.has(t)) return blocking("INCOMPLETE", "Result is incomplete. No grade can be assigned yet.");
+  if (WITHDRAWN_MARKERS.has(t)) return blocking("WITHDRAWN", "Student withdrew from the course. No grade can be assigned.");
+  return null;
+}
+
+// Letter grade to UGC grade point mapping
+export function mapMarksToGradePoint(marksObtained: number, maxMarks = 100): { grade: LetterGrade; points: number } {
+  const pct = (marksObtained / maxMarks) * 100;
+  if (pct >= 90) return { grade: "O", points: 10 };
+  if (pct >= 80) return { grade: "A+", points: 9 };
+  if (pct >= 70) return { grade: "A", points: 8 };
+  if (pct >= 60) return { grade: "B+", points: 7 };
+  if (pct >= 50) return { grade: "B", points: 6 };
+  if (pct >= 45) return { grade: "C", points: 5 };
+  if (pct >= 40) return { grade: "P", points: 4 };
+  return { grade: "F", points: 0 };
+}
+
+/** Null for a string the scale does not know. */
+export function gradeStringToGradePoint(
+  gradeStr: string,
+  scale: GradeScale = DEFAULT_GRADE_SCALE
+): { grade: LetterGrade; points: number } | null {
+  const grade = scale[gradeStr.trim().toUpperCase()];
+  return grade ? { grade, points: POINTS[grade] } : null;
+}
 
 /* ── Schema mapper ───────────────────────────────────────────────────── */
 
@@ -83,7 +152,7 @@ export type NadField =
 export const FIELD_ALIASES: Record<NadField, string[]> = {
   rollNumber: ["roll_no", "roll", "rollno", "roll_number", "student_id", "enrolment_no", "enrollment_no", "reg_no"],
   studentName: ["student_name", "name", "stud_name", "candidate_name"],
-  abcId: ["abc_id", "abc_account_id", "abc_no", "apaar_id"],
+  abcId: ["abc_id", "abc_account_id", "abc_no"],
   courseCode: ["course_code", "sub_code", "sub_cd", "subject_code", "course_id", "paper_code"],
   courseTitle: ["course_title", "subj_desc", "sub_name", "subject_name", "course_name", "subject", "paper_name"],
   credits: ["credits", "credit", "cr_reg", "cr", "credits_reg", "credits_registered", "max_credits"],
@@ -92,11 +161,21 @@ export const FIELD_ALIASES: Record<NadField, string[]> = {
   grade: ["grade", "letter_grade", "grd"],
 };
 
+/**
+ * Columns that hold a government ID. They are never mapped or stored. The upload path drops them,
+ * and the mapper reports them so the registrar knows they were ignored on purpose.
+ */
+export const GOVERNMENT_ID_COLUMNS = ["apaar_id", "apaarid", "aadhaar", "aadhar", "aadhaar_no", "aadhaar_number", "uid", "pan", "pan_no"];
+
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const ALIAS_LOOKUP: { field: NadField; alias: string }[] = (Object.keys(FIELD_ALIASES) as NadField[]).flatMap(
   (field) => FIELD_ALIASES[field].map((alias) => ({ field, alias: squash(alias) }))
 );
+
+const GOV_ID_SQUASHED = new Set(GOVERNMENT_ID_COLUMNS.map(squash));
+
+export const isGovernmentIdColumn = (header: string) => GOV_ID_SQUASHED.has(squash(header));
 
 /** First non-blank value among the row's columns that map to `field`. */
 export function pickField(raw: RawRow, field: NadField): string | undefined {
@@ -110,11 +189,16 @@ export function pickField(raw: RawRow, field: NadField): string | undefined {
   return undefined;
 }
 
+/** A copy of the row without any government-ID columns. */
+export function stripGovernmentIds(raw: RawRow): RawRow {
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => !isGovernmentIdColumn(key)));
+}
+
 export interface ColumnMapping {
   source: string;
   target: NadField | null;
   confidence: number; // 0 - 1
-  method: "alias" | "fuzzy" | "unmapped";
+  method: "alias" | "fuzzy" | "unmapped" | "government-id";
 }
 
 export interface SchemaMappingResult {
@@ -128,6 +212,8 @@ const FUZZY_MAP_THRESHOLD = 0.85;
 /** Maps raw CSV headers onto NAD fields: exact alias first, then Jaro-Winkler against known aliases. */
 export function detectSchemaMapping(headers: string[]): SchemaMappingResult {
   const mappings: ColumnMapping[] = headers.map((source) => {
+    if (isGovernmentIdColumn(source)) return { source, target: null, confidence: 0, method: "government-id" as const };
+
     const key = squash(source);
     const exact = ALIAS_LOOKUP.find((a) => a.alias === key);
     if (exact) return { source, target: exact.field, confidence: 1, method: "alias" as const };
@@ -147,111 +233,120 @@ export function detectSchemaMapping(headers: string[]): SchemaMappingResult {
   const missingRequired: NadField[] = [];
   if (!present.has("rollNumber")) missingRequired.push("rollNumber");
   if (!present.has("courseCode")) missingRequired.push("courseCode");
+  if (!present.has("credits")) missingRequired.push("credits");
   if (!present.has("marks") && !present.has("grade")) missingRequired.push("marks");
 
   const warnings: string[] = [];
-  if (!present.has("credits")) warnings.push("No credits column found; every course is assumed to carry 4 credits.");
-  if (present.has("marks") && !present.has("maxMarks")) warnings.push("No max-marks column found; marks are assumed to be out of 100.");
+  if (present.has("marks") && !present.has("maxMarks")) warnings.push("No max-marks column found; marks are read as out of 100.");
   mappings
     .filter((m) => m.method === "fuzzy")
     .forEach((m) => warnings.push(`'${m.source}' was matched to ${m.target} by similarity (${Math.round(m.confidence * 100)}%). Please confirm.`));
+  mappings
+    .filter((m) => m.method === "government-id")
+    .forEach((m) => warnings.push(`'${m.source}' looks like a government ID. It is ignored and never stored.`));
 
   return { mappings, missingRequired, warnings };
 }
 
-/* ── Grades ──────────────────────────────────────────────────────────── */
+/* ── Row normalisation ───────────────────────────────────────────────── */
 
-// Letter grade to UGC grade point mapping
-export function mapMarksToGradePoint(
-  marksObtained: number,
-  maxMarks = 100
-): { grade: NADCourseCredit["letterGrade"]; points: number } {
-  const pct = (marksObtained / maxMarks) * 100;
-  if (pct >= 90) return { grade: "O", points: 10 };
-  if (pct >= 80) return { grade: "A+", points: 9 };
-  if (pct >= 70) return { grade: "A", points: 8 };
-  if (pct >= 60) return { grade: "B+", points: 7 };
-  if (pct >= 50) return { grade: "B", points: 6 };
-  if (pct >= 45) return { grade: "C", points: 5 };
-  if (pct >= 40) return { grade: "P", points: 4 };
-  return { grade: "F", points: 0 };
-}
-
-export function gradeStringToGradePoint(
-  gradeStr: string
-): { grade: NADCourseCredit["letterGrade"]; points: number } {
-  const g = gradeStr.trim().toUpperCase();
-  switch (g) {
-    case "O":
-    case "OUTSTANDING":
-      return { grade: "O", points: 10 };
-    case "A+":
-    case "EXCELLENT":
-      return { grade: "A+", points: 9 };
-    case "A":
-    case "VERY GOOD":
-      return { grade: "A", points: 8 };
-    case "B+":
-    case "GOOD":
-      return { grade: "B+", points: 7 };
-    case "B":
-    case "ABOVE AVERAGE":
-      return { grade: "B", points: 6 };
-    case "C":
-    case "AVERAGE":
-      return { grade: "C", points: 5 };
-    case "P":
-    case "PASS":
-      return { grade: "P", points: 4 };
-    default:
-      return { grade: "F", points: 0 };
-  }
+function inferCategory(code: string): NADCourseCredit["courseCategory"] {
+  const upper = code.toUpperCase();
+  if (upper.startsWith("BS") || upper.startsWith("MA") || upper.startsWith("PH")) return "BASIC_SCIENCES";
+  if (upper.includes("LAB") || upper.endsWith("P")) return "LAB_PRACTICAL";
+  if (upper.startsWith("HS") || upper.startsWith("ENG")) return "HUMANITIES";
+  if (upper.startsWith("OE") || upper.startsWith("PE")) return "ELECTIVE";
+  return "CORE_ENGINEERING";
 }
 
 /**
- * Standardize messy ERP raw JSON or CSV row into NAD format
+ * Standardizes one messy ERP row into NAD format, or says exactly why it cannot.
+ * Nothing is defaulted: a blank grade, an unreadable mark or a missing credit value is an issue.
+ * Credits of 0 (audit or non-credit courses) are valid.
  */
-export function normalizeCourseRow(raw: RawRow): NADCourseCredit {
-  const code = pickField(raw, "courseCode") ?? "CS-GEN";
-  const title = pickField(raw, "courseTitle") ?? "Core Subject";
-  const creditsRegistered = Number(pickField(raw, "credits") ?? 4) || 4;
+export function normalizeCourseRow(raw: RawRow, scale: GradeScale = DEFAULT_GRADE_SCALE): NormalizedRow {
+  const issues: RowIssue[] = [];
+
+  const code = pickField(raw, "courseCode") ?? null;
+  if (!code) issues.push(blocking("MISSING_COURSE_CODE", "Course code is blank."));
+
+  const title = pickField(raw, "courseTitle") ?? null;
+  if (!title) issues.push(warning("MISSING_TITLE", "Course title is blank."));
+
+  let credits: number | null = null;
+  const creditsText = pickField(raw, "credits");
+  if (creditsText === undefined) {
+    issues.push(blocking("MISSING_CREDITS", "Credits are blank."));
+  } else {
+    const n = Number(creditsText);
+    if (!Number.isFinite(n) || n < 0) issues.push(blocking("UNPARSEABLE_CREDITS", `Credits '${creditsText}' is not a valid number.`));
+    else credits = n;
+  }
 
   const marksText = pickField(raw, "marks");
   const gradeText = pickField(raw, "grade");
+  let gradeInfo: { grade: LetterGrade; points: number } | null = null;
+  let gradeProblem = false;
 
-  let gradeInfo: { grade: NADCourseCredit["letterGrade"]; points: number };
-  if (marksText !== undefined && !Number.isNaN(Number(marksText))) {
-    const max = Number(pickField(raw, "maxMarks") ?? 100) || 100;
-    gradeInfo = mapMarksToGradePoint(Number(marksText), max);
-  } else if (gradeText !== undefined) {
-    gradeInfo = gradeStringToGradePoint(gradeText);
-  } else {
-    gradeInfo = { grade: "A", points: 8 };
+  if (marksText !== undefined) {
+    const marker = markerIssue(marksText);
+    const n = Number(marksText);
+    if (marker) {
+      issues.push(marker);
+      gradeProblem = true;
+    } else if (!Number.isFinite(n)) {
+      issues.push(blocking("UNPARSEABLE_MARKS", `Marks '${marksText}' could not be read as a number.`));
+      gradeProblem = true;
+    } else {
+      const max = Number(pickField(raw, "maxMarks") ?? 100);
+      if (!Number.isFinite(max) || max <= 0) {
+        issues.push(blocking("UNPARSEABLE_MARKS", "Max marks is not a positive number."));
+        gradeProblem = true;
+      } else if (n < 0 || n > max) {
+        issues.push(blocking("MARKS_OUT_OF_RANGE", `Marks ${n} are outside 0 to ${max}.`));
+        gradeProblem = true;
+      } else {
+        gradeInfo = mapMarksToGradePoint(n, max);
+      }
+    }
   }
 
-  const creditsEarned = gradeInfo.points > 0 ? creditsRegistered : 0;
+  if (gradeInfo && gradeText !== undefined) {
+    const stated = gradeStringToGradePoint(gradeText, scale);
+    if (stated && stated.grade !== gradeInfo.grade) {
+      issues.push(warning("GRADE_MISMATCH", `Marks give ${gradeInfo.grade} but the grade column says ${stated.grade}. Marks were used.`));
+    }
+  } else if (!gradeInfo && !gradeProblem && gradeText !== undefined) {
+    const marker = markerIssue(gradeText);
+    if (marker) {
+      issues.push(marker);
+    } else {
+      const mapped = gradeStringToGradePoint(gradeText, scale);
+      if (mapped) gradeInfo = mapped;
+      else issues.push(blocking("UNKNOWN_GRADE", `Grade '${gradeText}' is not in this institution's grade scale.`));
+    }
+  } else if (marksText === undefined && gradeText === undefined) {
+    issues.push(blocking("MISSING_GRADE", "Neither marks nor a grade were provided."));
+  }
 
-  // Infer category
-  let category: NADCourseCredit["courseCategory"] = "CORE_ENGINEERING";
-  const upperCode = code.toUpperCase();
-  if (upperCode.startsWith("BS") || upperCode.startsWith("MA") || upperCode.startsWith("PH")) {
-    category = "BASIC_SCIENCES";
-  } else if (upperCode.includes("LAB") || upperCode.endsWith("P")) {
-    category = "LAB_PRACTICAL";
-  } else if (upperCode.startsWith("HS") || upperCode.startsWith("ENG")) {
-    category = "HUMANITIES";
-  } else if (upperCode.startsWith("OE") || upperCode.startsWith("PE")) {
-    category = "ELECTIVE";
+  const hasBlocking = issues.some((i) => i.severity === "BLOCKING");
+  if (hasBlocking || !code || credits === null || !gradeInfo) {
+    return { courseCode: code, courseTitle: title, course: null, issues };
   }
 
   return {
     courseCode: code,
     courseTitle: title,
-    courseCategory: category,
-    creditsRegistered,
-    creditsEarned,
-    letterGrade: gradeInfo.grade,
-    gradePoints: gradeInfo.points,
+    course: {
+      courseCode: code,
+      courseTitle: title ?? code,
+      courseCategory: inferCategory(code),
+      creditsRegistered: credits,
+      creditsEarned: gradeInfo.points > 0 ? credits : 0,
+      letterGrade: gradeInfo.grade,
+      gradePoints: gradeInfo.points,
+    },
+    issues,
   };
 }
 
@@ -300,106 +395,277 @@ export function diffCourses(existing: NADCourseCredit[], incoming: NADCourseCred
   return out;
 }
 
-/**
- * Calculates SGPA and aggregates student credits
- */
-export function processStudentSemesterRecord(
-  studentRoll: string,
-  studentName: string,
-  abcAccountId: string,
-  apaarToken: string,
-  program: string,
-  semester: number,
-  academicYear: string,
-  priorCredits: number,
-  priorCgpa: number,
-  rawCourses: RawRow[]
-): NADStudentRecord {
-  const courses = rawCourses.map(normalizeCourseRow);
+/* ── SGPA, CGPA and attempt history ──────────────────────────────────── */
 
-  let totalCreditPoints = 0;
-  let semesterCreditsRegistered = 0;
-  let semesterCreditsEarned = 0;
+/** One attempt at one course. A failed course that is retaken has two attempts. */
+export interface CourseAttempt {
+  semester: number;
+  courseCode: string;
+  letterGrade: LetterGrade;
+  gradePoints: number; // points per credit, 0 to 10
+  creditsRegistered: number;
+  creditsEarned: number;
+}
 
-  courses.forEach((c) => {
-    semesterCreditsRegistered += c.creditsRegistered;
-    semesterCreditsEarned += c.creditsEarned;
-    totalCreditPoints += c.gradePoints * c.creditsRegistered;
-  });
-
-  const sgpa = semesterCreditsRegistered > 0
-    ? Math.round((totalCreditPoints / semesterCreditsRegistered) * 100) / 100
-    : 0;
-
-  const updatedCumulativeCredits = priorCredits + semesterCreditsEarned;
-
-  // Weighted CGPA approximation
-  const priorCreditPoints = priorCredits * priorCgpa;
-  const totalPoints = priorCreditPoints + totalCreditPoints;
-  const totalRegisteredAll = (priorCredits > 0 ? priorCredits : 0) + semesterCreditsRegistered;
-  const cgpa = totalRegisteredAll > 0
-    ? Math.round((totalPoints / totalRegisteredAll) * 100) / 100
-    : sgpa;
-
-  return {
-    studentRoll,
-    studentName,
-    abcAccountId,
-    apaarToken,
-    program,
-    semester,
-    academicYear,
-    courses,
-    semesterCreditsEarned,
-    semesterCreditsRegistered,
-    sgpa,
-    priorAccumulatedCredits: priorCredits,
-    priorCgpa,
-    updatedCumulativeCredits,
-    cgpa,
-    nadSyncTimestamp: new Date().toISOString(),
-    syncStatus: semesterCreditsEarned === semesterCreditsRegistered ? "SYNCED_TO_NAD" : "PARTIAL_CREDIT",
-  };
+/** Totals imported from before this system held attempt-level data. Null means no prior record. */
+export interface PriorSummary {
+  creditsEarned: number;
+  creditsRegistered: number;
+  /** Sum of (grade points x credits) over the prior courses. */
+  gradePoints: number;
 }
 
 /**
- * Recalculate AICTE Approved Intake vs Verified Enrolment compliance metrics
+ * How a retaken course counts toward CGPA.
+ * - REPLACE_FAILED_ATTEMPT: only the latest attempt counts (the common policy; confirm yours).
+ * - KEEP_ALL_ATTEMPTS: every attempt counts.
+ * Earned credits always count a course once.
  */
-export function calculateAICTECompliance(
-  approvedIntake: number,
-  totalErpEnrolled: number,
-  verifiedEnrolment: number,
-  abcSeededCount: number
-): AICTEIntakeCompliance {
-  const unverifiedGhostCount = Math.max(0, totalErpEnrolled - verifiedEnrolment);
-  const enrolmentPercentage = Math.round((verifiedEnrolment / approvedIntake) * 1000) / 10;
-  const abcSeedingPercentage = Math.round((abcSeededCount / approvedIntake) * 1000) / 10;
+export type BacklogRule = "REPLACE_FAILED_ATTEMPT" | "KEEP_ALL_ATTEMPTS";
+export const DEFAULT_BACKLOG_RULE: BacklogRule = "REPLACE_FAILED_ATTEMPT";
 
-  let complianceStatus: AICTEIntakeCompliance["complianceStatus"] = "HEALTHY_OPTIMAL";
-  let aicteNotice = "Enrolment is within permissible AICTE sanctioned quota. ABC credit ledger verified.";
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-  if (verifiedEnrolment > approvedIntake) {
+export interface Cumulative {
+  creditsEarned: number;
+  creditsRegistered: number;
+  /** Null when there is nothing to average. */
+  cgpa: number | null;
+}
+
+export function computeCumulative(
+  prior: PriorSummary | null,
+  attempts: CourseAttempt[],
+  rule: BacklogRule = DEFAULT_BACKLOG_RULE
+): Cumulative {
+  const byCourse = new Map<string, CourseAttempt[]>();
+  for (const a of attempts) byCourse.set(a.courseCode, [...(byCourse.get(a.courseCode) ?? []), a]);
+
+  let earned = prior?.creditsEarned ?? 0;
+  let registered = prior?.creditsRegistered ?? 0;
+  let points = prior?.gradePoints ?? 0;
+
+  for (const list of byCourse.values()) {
+    const ordered = [...list].sort((x, y) => x.semester - y.semester);
+    earned += Math.max(...ordered.map((a) => a.creditsEarned));
+    const counted = rule === "REPLACE_FAILED_ATTEMPT" ? [ordered[ordered.length - 1]] : ordered;
+    for (const a of counted) {
+      registered += a.creditsRegistered;
+      points += a.gradePoints * a.creditsRegistered;
+    }
+  }
+  return { creditsEarned: earned, creditsRegistered: registered, cgpa: registered > 0 ? round2(points / registered) : null };
+}
+
+export interface NADStudentRecord {
+  studentRoll: string;
+  studentName: string;
+  abcAccountId: string; // an ABC account label, never a government ID
+  apaarToken: string;
+  program: string;
+  semester: number;
+  academicYear: string;
+  courses: NADCourseCredit[]; // rows that passed validation
+  rowIssues: RowIssueReport[]; // rows with any issue, flagged excluded when blocking
+  semesterCreditsEarned: number;
+  semesterCreditsRegistered: number;
+  sgpa: number | null;
+  priorSummary: PriorSummary | null;
+  hasPriorRecord: boolean;
+  history: CourseAttempt[]; // attempts held here, all semesters
+  backlogRule: BacklogRule;
+  priorAccumulatedCredits: number; // credits earned before this semester
+  updatedCumulativeCredits: number;
+  cgpa: number | null;
+  nadSyncTimestamp: string;
+  syncStatus: "SYNCED_TO_NAD" | "PARTIAL_CREDIT" | "HELD_FOR_REVIEW";
+}
+
+export interface SemesterInput {
+  studentRoll: string;
+  studentName: string;
+  abcAccountId: string;
+  apaarToken: string;
+  program: string;
+  semester: number;
+  academicYear: string;
+  rows: RawRow[];
+  prior: PriorSummary | null;
+  /** Attempts already held for this student, any semester. Re-submitting a semester replaces its attempts. */
+  existingHistory?: CourseAttempt[];
+  backlogRule?: BacklogRule;
+  gradeScale?: GradeScale;
+}
+
+/** Calculates SGPA and the running totals for one student's semester upload. */
+export function processStudentSemesterRecord(input: SemesterInput): NADStudentRecord {
+  const rule = input.backlogRule ?? DEFAULT_BACKLOG_RULE;
+  const normalized = input.rows.map((r) => normalizeCourseRow(r, input.gradeScale));
+  const courses = normalized.flatMap((n) => (n.course ? [n.course] : []));
+
+  const rowIssues: RowIssueReport[] = normalized
+    .map((n, i) => ({
+      rowNumber: i + 1,
+      courseCode: n.courseCode,
+      courseTitle: n.courseTitle,
+      excluded: n.course === null,
+      issues: n.issues,
+    }))
+    .filter((r) => r.issues.length > 0);
+
+  let creditPoints = 0;
+  let registered = 0;
+  let earned = 0;
+  for (const c of courses) {
+    registered += c.creditsRegistered;
+    earned += c.creditsEarned;
+    creditPoints += c.gradePoints * c.creditsRegistered;
+  }
+  const sgpa = registered > 0 ? round2(creditPoints / registered) : null;
+
+  const attempts: CourseAttempt[] = courses.map((c) => ({
+    semester: input.semester,
+    courseCode: c.courseCode,
+    letterGrade: c.letterGrade,
+    gradePoints: c.gradePoints,
+    creditsRegistered: c.creditsRegistered,
+    creditsEarned: c.creditsEarned,
+  }));
+  const others = (input.existingHistory ?? []).filter((a) => a.semester !== input.semester);
+  const history = [...others, ...attempts];
+
+  const before = computeCumulative(input.prior, others, rule);
+  const after = computeCumulative(input.prior, history, rule);
+  const excluded = rowIssues.some((r) => r.excluded);
+
+  return {
+    studentRoll: input.studentRoll,
+    studentName: input.studentName,
+    abcAccountId: input.abcAccountId,
+    apaarToken: input.apaarToken,
+    program: input.program,
+    semester: input.semester,
+    academicYear: input.academicYear,
+    courses,
+    rowIssues,
+    semesterCreditsEarned: earned,
+    semesterCreditsRegistered: registered,
+    sgpa,
+    priorSummary: input.prior,
+    hasPriorRecord: input.prior !== null || others.length > 0,
+    history,
+    backlogRule: rule,
+    priorAccumulatedCredits: before.creditsEarned,
+    updatedCumulativeCredits: after.creditsEarned,
+    cgpa: after.cgpa,
+    nadSyncTimestamp: new Date().toISOString(),
+    syncStatus: excluded ? "HELD_FOR_REVIEW" : earned === registered ? "SYNCED_TO_NAD" : "PARTIAL_CREDIT",
+  };
+}
+
+/* ── Per-programme AICTE intake compliance ───────────────────────────── */
+
+export interface ProgrammeIntake {
+  programme: string;
+  approvedIntake: number;
+  erpEnrolled: number;
+  verified: number;
+  abcSeeded: number;
+}
+
+export type ComplianceStatus = "HEALTHY_OPTIMAL" | "OVER_INTAKE_PENALTY_RISK" | "UNDER_ENROLMENT_RISK" | "NO_APPROVED_INTAKE";
+
+export interface ProgrammeCompliance extends ProgrammeIntake {
+  enrolmentPercentage: number | null; // verified / approved
+  abcSeedingPercentage: number | null;
+  overBy: number; // ERP enrolled above approved intake
+  status: ComplianceStatus;
+  notice: string;
+}
+
+export interface InstitutionMeta {
+  institutionCode: string;
+  institutionName: string;
+  aicteApprovalReference: string;
+  academicYear: string;
+}
+
+export interface AICTEIntakeCompliance extends InstitutionMeta {
+  approvedIntake: number;
+  totalErpEnrolled: number;
+  verifiedEnrolment: number;
+  abcSeededCount: number;
+  unverifiedGhostCount: number; // in the ERP but without a verified identity
+  enrolmentPercentage: number | null;
+  abcSeedingPercentage: number | null;
+  complianceStatus: ComplianceStatus;
+  aicteNotice: string;
+  overIntakeProgrammes: string[];
+  programmes: ProgrammeCompliance[];
+}
+
+const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : null);
+
+/** AICTE approves intake per programme, so over-admission is judged per programme. */
+export function calculateProgrammeCompliance(p: ProgrammeIntake): ProgrammeCompliance {
+  const overBy = Math.max(0, p.erpEnrolled - p.approvedIntake);
+  const enrolmentPercentage = pct(p.verified, p.approvedIntake);
+  let status: ComplianceStatus = "HEALTHY_OPTIMAL";
+  let notice = "Within the approved intake.";
+
+  if (p.approvedIntake <= 0) {
+    status = "NO_APPROVED_INTAKE";
+    notice = "No approved intake on record for this programme, so compliance cannot be judged.";
+  } else if (overBy > 0) {
+    status = "OVER_INTAKE_PENALTY_RISK";
+    notice = `${p.programme}: ${overBy} more students enrolled than the approved intake of ${p.approvedIntake}.`;
+  } else if (enrolmentPercentage !== null && enrolmentPercentage < 60) {
+    status = "UNDER_ENROLMENT_RISK";
+    notice = `${p.programme}: verified enrolment is below 60% of the approved intake.`;
+  }
+  return { ...p, enrolmentPercentage, abcSeedingPercentage: pct(p.abcSeeded, p.approvedIntake), overBy, status, notice };
+}
+
+/** Rolls programmes up to the institution. Any over-intake programme makes the institution at risk. */
+export function calculateInstitutionCompliance(programmes: ProgrammeIntake[], meta: InstitutionMeta): AICTEIntakeCompliance {
+  const rows = programmes.map(calculateProgrammeCompliance);
+  const sum = (key: keyof Omit<ProgrammeIntake, "programme">) => rows.reduce((n, r) => n + r[key], 0);
+  const approved = sum("approvedIntake");
+  const enrolled = sum("erpEnrolled");
+  const verified = sum("verified");
+  const seeded = sum("abcSeeded");
+  const over = rows.filter((r) => r.status === "OVER_INTAKE_PENALTY_RISK");
+  const noIntake = rows.filter((r) => r.status === "NO_APPROVED_INTAKE");
+
+  let complianceStatus: ComplianceStatus = "HEALTHY_OPTIMAL";
+  let aicteNotice = "Every programme is within its approved intake. ABC credit ledger verified.";
+  if (over.length > 0) {
     complianceStatus = "OVER_INTAKE_PENALTY_RISK";
-    aicteNotice = `WARNING: Verified enrolment exceeds AICTE approved intake by ${verifiedEnrolment - approvedIntake} seats. Supernumerary seat verification is required.`;
-  } else if (enrolmentPercentage < 60) {
+    aicteNotice = `Over approved intake: ${over.map((r) => `${r.programme} (+${r.overBy})`).join(", ")}. Supernumerary seat verification is required.`;
+  } else if (approved <= 0) {
+    complianceStatus = "NO_APPROVED_INTAKE";
+    aicteNotice = "No approved intake is on record, so compliance cannot be judged.";
+  } else if (noIntake.length > 0) {
+    complianceStatus = "NO_APPROVED_INTAKE";
+    aicteNotice = `No approved intake on record for: ${noIntake.map((r) => r.programme).join(", ")}.`;
+  } else if ((pct(verified, approved) ?? 0) < 60) {
     complianceStatus = "UNDER_ENROLMENT_RISK";
-    aicteNotice = "CAUTION: Enrolment is below 60% of sanctioned intake. Seat rationalization may apply in a subsequent EoA cycle.";
+    aicteNotice = "Verified enrolment is below 60% of the approved intake. Seat rationalisation may apply in a later EoA cycle.";
   }
 
   return {
-    institutionCode: "AICTE-DEMO-0001",
-    institutionName: "Vindhya Institute of Technology (sample data)",
-    aicteApprovalReference: "AICTE/EOA/2024-25/DEMO-0001",
-    academicYear: "2024-25",
-    approvedIntake,
-    totalErpEnrolled,
-    verifiedEnrolment,
-    abcSeededCount,
-    unverifiedGhostCount,
-    enrolmentPercentage,
-    abcSeedingPercentage,
+    ...meta,
+    approvedIntake: approved,
+    totalErpEnrolled: enrolled,
+    verifiedEnrolment: verified,
+    abcSeededCount: seeded,
+    unverifiedGhostCount: Math.max(0, enrolled - verified),
+    enrolmentPercentage: pct(verified, approved),
+    abcSeedingPercentage: pct(seeded, approved),
     complianceStatus,
     aicteNotice,
+    overIntakeProgrammes: over.map((r) => r.programme),
+    programmes: rows,
   };
 }
 
@@ -419,8 +685,9 @@ export interface CollegeSnapshot {
 
 export interface ComplianceScore {
   score: number; // 0 - 100
-  band: "GREEN" | "AMBER" | "RED";
+  band: "GREEN" | "AMBER" | "RED" | "UNRATED";
   breakdown: { label: string; weight: number; value: number }[];
+  note?: string;
 }
 
 const clamp = (n: number, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, n));
@@ -428,8 +695,12 @@ const clamp = (n: number, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, n));
 /**
  * Transparent weighted score: verification 35%, intake fit 25%, ABC seeding 25%, flag resolution 15%.
  * Intake fit is 100 inside 60-100% utilisation and falls off outside that band.
+ * A college with no approved intake on record is UNRATED, not scored.
  */
 export function computeComplianceScore(c: CollegeSnapshot): ComplianceScore {
+  if (!(c.approvedIntake > 0)) {
+    return { score: 0, band: "UNRATED", breakdown: [], note: "No approved intake on record." };
+  }
   const verification = c.erpEnrolled > 0 ? (c.verified / c.erpEnrolled) * 100 : 0;
   const utilisation = (c.verified / c.approvedIntake) * 100;
   const intakeFit = utilisation > 100 ? clamp(100 - (utilisation - 100) * 4) : utilisation >= 60 ? 100 : clamp((utilisation / 60) * 100);
@@ -457,10 +728,58 @@ export const SAMPLE_COLLEGES: CollegeSnapshot[] = [
   { code: "DEMO-0006", name: "Konkan Technical Campus", state: "Maharashtra", approvedIntake: 720, erpEnrolled: 690, verified: 655, abcSeeded: 640, flagsOpen: 2, flagsResolved: 34 },
 ];
 
+/* ── Policy constants ────────────────────────────────────────────────────
+ * Each constant records where it comes from. `assumption` means the value is a modelling choice
+ * that needs confirming against the current regulation before real use.
+ */
+
+export interface PolicyConstant<T> {
+  value: T;
+  source: string;
+  status: "sourced" | "assumption";
+}
+
+export const POLICY = {
+  swayamCapPercent: {
+    value: 40,
+    source: "UGC (Credit Framework for Online Learning Courses through SWAYAM) Regulations: up to 40% of a programme's courses through SWAYAM.",
+    status: "sourced",
+  } as PolicyConstant<number>,
+  lateralEntryMinOverlap: {
+    value: 70,
+    source: "Project threshold for the demo. No regulation was found that fixes a 70% syllabus overlap.",
+    status: "assumption",
+  } as PolicyConstant<number>,
+  nepCertificateCredits: {
+    value: 40,
+    source: "UGC credit framework under NEP 2020: certificate after the first year.",
+    status: "sourced",
+  } as PolicyConstant<number>,
+  nepDiplomaCredits: {
+    value: 80,
+    source: "UGC credit framework under NEP 2020: diploma after the second year.",
+    status: "sourced",
+  } as PolicyConstant<number>,
+  programmeCredits: {
+    value: 160,
+    source: "Typical 4-year B.Tech credit total. Varies by institution and programme.",
+    status: "assumption",
+  } as PolicyConstant<number>,
+  vocationalCredits: {
+    value: 4,
+    source: "UGC credit framework: additional skill or vocational credits for the first two exits.",
+    status: "sourced",
+  } as PolicyConstant<number>,
+  abcCreditValidityYears: {
+    value: 7,
+    source: "Academic Bank of Credits regulations: credits remain valid for a limited period. Confirm the current figure.",
+    status: "assumption",
+  } as PolicyConstant<number>,
+} as const;
+
 /* ── SWAYAM MOOC credit cap ──────────────────────────────────────────── */
 
-/** UGC allows up to 40% of a programme's credits to be earned through SWAYAM MOOCs. */
-export const SWAYAM_CAP_PERCENT = 40;
+export const SWAYAM_CAP_PERCENT = POLICY.swayamCapPercent.value;
 
 export interface SwayamCapResult {
   capPercent: number;
@@ -491,7 +810,7 @@ export function validateSwayamCap(totalProgrammeCredits: number, swayamCredits: 
 
 /* ── Lateral entry syllabus overlap ──────────────────────────────────── */
 
-export const LATERAL_ENTRY_MIN_OVERLAP = 70;
+export const LATERAL_ENTRY_MIN_OVERLAP = POLICY.lateralEntryMinOverlap.value;
 
 export interface SyllabusTopic {
   topic: string;
@@ -501,6 +820,7 @@ export interface SyllabusTopic {
 export interface LateralEntryResult {
   overlapPercent: number;
   threshold: number;
+  thresholdIsAssumption: boolean;
   eligible: boolean;
   matchedCredits: number;
   totalCredits: number;
@@ -549,6 +869,7 @@ export function calculateLateralEntryOverlap(
   return {
     overlapPercent,
     threshold,
+    thresholdIsAssumption: POLICY.lateralEntryMinOverlap.status === "assumption",
     eligible: overlapPercent >= threshold,
     matchedCredits,
     totalCredits,
@@ -605,19 +926,14 @@ export const SAMPLE_DIPLOMAS: Record<string, { label: string; syllabus: Syllabus
 
 /* ── NEP 2020 Multiple Entry / Exit ──────────────────────────────────── */
 
-/**
- * Credit thresholds follow the UGC credit framework: certificate at 40 credits, diploma at 80,
- * with an additional 4 skill/vocational credits for the first two exits. A 4-year B.Tech completes
- * at 160 credits. Treat these as configurable policy constants, not legal advice.
- */
 export const NEP_EXIT_LEVELS = [
-  { level: "UG_CERTIFICATE", label: "UG Certificate", afterYear: 1, minCredits: 40, needsVocational: true },
-  { level: "UG_DIPLOMA", label: "UG Diploma", afterYear: 2, minCredits: 80, needsVocational: true },
-  { level: "DEGREE", label: "B.Tech Degree", afterYear: 4, minCredits: 160, needsVocational: false },
+  { level: "UG_CERTIFICATE", label: "UG Certificate", afterYear: 1, minCredits: POLICY.nepCertificateCredits.value, needsVocational: true },
+  { level: "UG_DIPLOMA", label: "UG Diploma", afterYear: 2, minCredits: POLICY.nepDiplomaCredits.value, needsVocational: true },
+  { level: "DEGREE", label: "B.Tech Degree", afterYear: 4, minCredits: POLICY.programmeCredits.value, needsVocational: false },
 ] as const;
 
-export const VOCATIONAL_CREDITS_REQUIRED = 4;
-export const ABC_CREDIT_VALIDITY_YEARS = 7;
+export const VOCATIONAL_CREDITS_REQUIRED = POLICY.vocationalCredits.value;
+export const ABC_CREDIT_VALIDITY_YEARS = POLICY.abcCreditValidityYears.value;
 
 export interface NepExitOption {
   level: (typeof NEP_EXIT_LEVELS)[number]["level"];
@@ -638,6 +954,7 @@ export interface NepExitResult {
   reEntry: { abcValidityYears: number; note: string };
 }
 
+/** Eligibility is judged only on credits actually earned. Pass projected credits to a separate call and label them. */
 export function simulateNepExit(earnedCredits: number, vocationalCredits = 0): NepExitResult {
   const options: NepExitOption[] = NEP_EXIT_LEVELS.map((l) => {
     const creditShortfall = Math.max(0, l.minCredits - earnedCredits);
@@ -661,7 +978,7 @@ export function simulateNepExit(earnedCredits: number, vocationalCredits = 0): N
     nextMilestone: options.find((o) => !o.eligible) ?? null,
     reEntry: {
       abcValidityYears: ABC_CREDIT_VALIDITY_YEARS,
-      note: `Credits stay in the Academic Bank of Credits for ${ABC_CREDIT_VALIDITY_YEARS} years, so a student can re-enter and continue from the last exit point.`,
+      note: `Credits stay in the Academic Bank of Credits for about ${ABC_CREDIT_VALIDITY_YEARS} years (assumption: confirm the current rule), so a student can re-enter and continue from the last exit point.`,
     },
   };
 }
@@ -705,61 +1022,31 @@ export function forecastCredits(input: CreditForecastInput): CreditForecast {
 }
 
 /**
- * Sample messy ERP Marksheet CSV string to showcase heterogeneous parsing
+ * Sample messy ERP marksheet CSV to showcase heterogeneous parsing. The ABC IDs here are
+ * made-up labels and deliberately share no digits with any demo APAAR ID.
  */
 export const SAMPLE_MESSY_ERP_CSV = `roll_no,student_name,abc_id,sub_cd,subj_desc,cr_reg,marks_obt,max_marks
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS501","Operating Systems & Kernels",4,88,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS502","Compiler Design & Automata",4,76,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","AI302","Machine Learning & DPDP Privacy",3,92,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","HS201","Professional Ethics in AI",2,84,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS501P","OS Systems Laboratory",2,95,100
-2023-ME-112,"Lakshmi Priya S","ABC-8104-5519-3312","ME501","Thermodynamics & Heat Transfer",4,81,100
-2023-ME-112,"Lakshmi Priya S","ABC-8104-5519-3312","ME502","Fluid Mechanics Laboratory",2,89,100
-2023-ME-112,"Lakshmi Priya S","ABC-8104-5519-3312","MA301","Computational Numerical Methods",4,68,100`;
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS501","Operating Systems & Kernels",4,88,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS502","Compiler Design & Automata",4,76,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","AI302","Machine Learning & DPDP Privacy",3,92,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","HS201","Professional Ethics in AI",2,84,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS501P","OS Systems Laboratory",2,95,100
+2023-ME-112,"Lakshmi Priya S","ABC-DEMO-0112","ME501","Thermodynamics & Heat Transfer",4,81,100
+2023-ME-112,"Lakshmi Priya S","ABC-DEMO-0112","ME502","Fluid Mechanics Laboratory",2,89,100
+2023-ME-112,"Lakshmi Priya S","ABC-DEMO-0112","MA301","Computational Numerical Methods",4,68,100`;
 
 /** A revaluation re-upload for the same semester: one grade changed, one course added, one dropped. */
 export const SAMPLE_REVALUATION_CSV = `roll_no,student_name,abc_id,sub_cd,subj_desc,cr_reg,marks_obt,max_marks
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS501","Operating Systems & Kernels",4,88,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS502","Compiler Design & Automata",4,83,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","AI302","Machine Learning & DPDP Privacy",3,92,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS501P","OS Systems Laboratory",2,95,100
-2023-CS-041,"Rahul K.V.","ABC-9481-2041-6672","CS503","Computer Networks",3,79,100`;
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS501","Operating Systems & Kernels",4,88,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS502","Compiler Design & Automata",4,83,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","AI302","Machine Learning & DPDP Privacy",3,92,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS501P","OS Systems Laboratory",2,95,100
+2023-CS-041,"Rahul K.V.","ABC-DEMO-0041","CS503","Computer Networks",3,79,100`;
 
-/** Splits one CSV line, honouring quoted commas. */
-function splitCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let inside = false;
-  let current = "";
-  for (const char of line) {
-    if (char === '"') inside = !inside;
-    else if (char === "," && !inside) {
-      values.push(current.trim());
-      current = "";
-    } else current += char;
-  }
-  values.push(current.trim());
-  return values;
-}
-
-export function csvHeaders(csvText: string): string[] {
-  const first = csvText.trim().split("\n")[0] ?? "";
-  return splitCsvLine(first.replace(/\r/g, "")).map((h) => h.replace(/["']/g, "").trim());
-}
-
-/**
- * Parses a CSV string with arbitrary headers into row objects keyed by the lower-cased header.
- */
-export function parseMessyCSV(csvText: string): RawRow[] {
-  const lines = csvText.trim().split("\n").filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
-
-  const headers = csvHeaders(csvText).map((h) => h.toLowerCase());
-  return lines.slice(1).map((line) => {
-    const values = splitCsvLine(line.replace(/\r/g, ""));
-    const row: RawRow = {};
-    headers.forEach((h, idx) => {
-      row[h] = values[idx] ?? "";
-    });
-    return row;
-  });
-}
+/** A sheet with the problems the validator must catch: absent, blank, unknown grade, bad marks, 0 credits. */
+export const SAMPLE_PROBLEM_CSV = `roll_no,student_name,abc_id,sub_cd,subj_desc,cr_reg,marks_obt,max_marks,grade
+2023-EC-062,"Mohd Faraz","ABC-DEMO-0062","EC501","Signals & Systems",4,AB,100,
+2023-EC-062,"Mohd Faraz","ABC-DEMO-0062","EC502","Control Systems",4,,,
+2023-EC-062,"Mohd Faraz","ABC-DEMO-0062","EC503","Antenna Theory",3,,,D
+2023-EC-062,"Mohd Faraz","ABC-DEMO-0062","EC504","Seminar (audit)",0,,,P
+2023-EC-062,"Mohd Faraz","ABC-DEMO-0062","EC505","Digital Communication",4,74,100,`;

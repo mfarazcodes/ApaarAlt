@@ -16,10 +16,11 @@ interface CaseRow {
   analysis: MatchScoreBreakdown;
 }
 
-type Resolution = "ACCEPTED" | "REJECTED";
+type Resolution = "ACCEPTED" | "REJECTED" | "FIXED";
 
-const CLASS_VIEW: Record<MatchClassification, { tone: "accent" | "amber" | "red"; label: string }> = {
+const CLASS_VIEW: Record<MatchClassification, { tone: "accent" | "amber" | "red" | "blue"; label: string }> = {
   EXACT_MATCH: { tone: "accent", label: "Exact" },
+  AUTO_FIXABLE: { tone: "blue", label: "Auto-fixable" },
   SOFT_MISMATCH_REVIEW: { tone: "amber", label: "Needs review" },
   HARD_REJECT: { tone: "red", label: "Hard reject" },
 };
@@ -30,6 +31,7 @@ export default function FuzzyQueue() {
   const [open, setOpen] = useState<string | null>(null);
   const [affidavit, setAffidavit] = useState<{ id: string; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmFix, setConfirmFix] = useState<CaseRow | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -65,13 +67,14 @@ export default function FuzzyQueue() {
       <SectionTitle
         eyebrow="Fuzzy match resolution queue"
         title="Resolve ERP and DigiLocker mismatches"
-        hint="Exact matches pass through on their own. Everything else waits here for a registrar."
+        hint="Only a literal match will pass the government check. Everything else waits here for a registrar."
       />
       {error && <div className="mb-4"><Notice tone="red">{error}</Notice></div>}
 
       <div className="mb-4 flex flex-wrap gap-2">
         <Pill tone="accent">{rows.length - review.length} exact</Pill>
-        <Pill tone="amber">{review.length} for review</Pill>
+        <Pill tone="blue">{rows.filter((r) => r.analysis.classification === "AUTO_FIXABLE").length} auto-fixable</Pill>
+        <Pill tone="amber">{rows.filter((r) => r.analysis.classification === "SOFT_MISMATCH_REVIEW").length} to review</Pill>
         <Pill tone="blue">{done} of {review.length} resolved</Pill>
       </div>
 
@@ -101,25 +104,38 @@ export default function FuzzyQueue() {
                   </p>
                   <p className="mt-0.5 text-xs text-white/55">{r.studentRoll} · {r.institution}</p>
                 </div>
-                <Pill tone={view.tone}>{view.label} · {r.analysis.overallConfidence}%</Pill>
-                {res && <Pill tone={res === "ACCEPTED" ? "accent" : "red"}>{res === "ACCEPTED" ? "Accepted" : "Rejected"}</Pill>}
+                <Pill tone={view.tone}>{view.label} · {r.analysis.sameIdentityConfidence}% same person</Pill>
+                {res && <Pill tone={res === "REJECTED" ? "red" : "accent"}>{res === "ACCEPTED" ? "Accepted" : res === "FIXED" ? "Spelling applied" : "Rejected"}</Pill>}
               </div>
 
               {expanded && (
                 <div className="border-t border-white/10 px-4 pb-4 pt-3">
                   <p className="text-sm text-white/70">{r.notes}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-white/60">Government check would accept:</span>
+                    {([["Name", r.analysis.apiWillAccept.name], ["Date of birth", r.analysis.apiWillAccept.dob], ["Gender", r.analysis.apiWillAccept.gender]] as const).map(([label, ok]) => (
+                      <Pill key={label} tone={ok === null ? "neutral" : ok ? "accent" : "red"}>{label}: {ok === null ? "not compared" : ok ? "yes" : "no"}</Pill>
+                    ))}
+                  </div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                    {[
+                    {([
                       ["Name", r.analysis.nameFinalScore],
                       ["Date of birth", r.analysis.dobScore],
                       ["Gender", r.analysis.genderScore],
-                    ].map(([label, value]) => (
-                      <div key={label as string}>
-                        <div className="flex justify-between text-xs text-white/65"><span>{label}</span><span className="tabular-nums">{value}%</span></div>
-                        <div className="mt-1.5"><ProgressBar value={value as number} max={100} tone={(value as number) < 65 ? "red" : (value as number) < 100 ? "amber" : "accent"} label={label as string} /></div>
-                      </div>
-                    ))}
+                    ] as [string, number | null][]).map(([label, value]) =>
+                      value === null ? (
+                        <div key={label} className="text-xs text-white/50">{label}: not compared (missing on one side)</div>
+                      ) : (
+                        <div key={label}>
+                          <div className="flex justify-between text-xs text-white/65"><span>{label}</span><span className="tabular-nums">{value}%</span></div>
+                          <div className="mt-1.5"><ProgressBar value={value} max={100} tone={value < 65 ? "red" : value < 100 ? "amber" : "accent"} label={label} /></div>
+                        </div>
+                      )
+                    )}
                   </div>
+                  {r.analysis.suggestedFixes.map((f) => (
+                    <p key={f.text} className="mt-3 text-sm text-sky-300">{f.text}</p>
+                  ))}
                   {[...r.analysis.discrepancies, ...r.analysis.reconciliationNotes].length > 0 && (
                     <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-white/65">
                       {r.analysis.discrepancies.map((d) => <li key={d} className="text-amber-200/90">{d}</li>)}
@@ -131,9 +147,15 @@ export default function FuzzyQueue() {
 
               {!exact && (
                 <div className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3">
-                  <Button size="sm" variant="primary" disabled={r.analysis.classification === "HARD_REJECT"} title={r.analysis.classification === "HARD_REJECT" ? "A hard reject cannot be accepted" : undefined} onClick={() => setResolved({ ...resolved, [r.id]: "ACCEPTED" })}>
-                    <Check width={16} height={16} className={ICON} />Accept match
-                  </Button>
+                  {r.analysis.classification === "AUTO_FIXABLE" ? (
+                    <Button size="sm" variant="primary" disabled={res === "FIXED"} onClick={() => setConfirmFix(r)}>
+                      <Check width={16} height={16} className={ICON} />Apply Aadhaar spelling to ERP
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="primary" disabled={r.analysis.classification === "HARD_REJECT"} title={r.analysis.classification === "HARD_REJECT" ? "A hard reject cannot be accepted" : undefined} onClick={() => setResolved({ ...resolved, [r.id]: "ACCEPTED" })}>
+                      <Check width={16} height={16} className={ICON} />Accept match
+                    </Button>
+                  )}
                   <Button size="sm" onClick={() => setResolved({ ...resolved, [r.id]: "REJECTED" })}>
                     <X width={16} height={16} className={ICON} />Reject
                   </Button>
@@ -148,6 +170,20 @@ export default function FuzzyQueue() {
           );
         })}
       </ul>
+
+      <Modal open={Boolean(confirmFix)} onClose={() => setConfirmFix(null)} title="Apply the Aadhaar spelling?">
+        {confirmFix && (
+          <>
+            <p className="text-sm text-white/75">
+              The ERP name <strong>&ldquo;{confirmFix.erp.name}&rdquo;</strong> will be changed to <strong>&ldquo;{confirmFix.digilocker.name}&rdquo;</strong>, so the government check accepts it. This is the registrar&apos;s decision and is recorded.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button onClick={() => setConfirmFix(null)}>Cancel</Button>
+              <Button variant="primary" onClick={() => { setResolved({ ...resolved, [confirmFix.id]: "FIXED" }); setConfirmFix(null); }}>Confirm and apply</Button>
+            </div>
+          </>
+        )}
+      </Modal>
 
       <Modal open={Boolean(affidavit)} onClose={() => setAffidavit(null)} title="Provisional affidavit">
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-white/[0.06] p-4 text-xs leading-relaxed text-white/85">{affidavit?.text}</pre>

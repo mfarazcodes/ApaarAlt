@@ -8,7 +8,7 @@ import { Card, ICON, Notice, Pill, ProgressBar, SectionTitle } from "../portal/u
 
 type Row = CollegeSnapshot & ComplianceScore;
 
-const BAND_TONE = { GREEN: "accent", AMBER: "amber", RED: "red" } as const;
+const BAND_TONE = { GREEN: "accent", AMBER: "amber", RED: "red", UNRATED: "neutral" } as const;
 
 export default function Leaderboard() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -46,7 +46,7 @@ export default function Leaderboard() {
                   <span className="block truncate text-sm font-medium">{r.name}</span>
                   <span className="block text-xs text-white/55">{r.state} · intake {r.approvedIntake.toLocaleString("en-IN")} · {r.flagsOpen} open flags</span>
                 </span>
-                <Pill tone={BAND_TONE[r.band]}>{r.score}</Pill>
+                <Pill tone={BAND_TONE[r.band]}>{r.band === "UNRATED" ? "Unrated" : r.score}</Pill>
                 <ChevronDown width={16} height={16} className={`${ICON} text-white/55 transition ${expanded ? "rotate-180" : ""}`} />
               </button>
               {expanded && (

@@ -10,6 +10,7 @@ interface PreviewResponse {
   message: string;
   mapping: SchemaMappingResult;
   results: { student: NADStudentRecord; diff: CourseDiff[]; isNew: boolean }[];
+  blockingIssues: { studentRoll: string }[];
   updatedCompliance: AICTEIntakeCompliance;
 }
 
@@ -23,13 +24,15 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [samples, setSamples] = useState<{ original: string; revaluation: string } | null>(null);
+  const [samples, setSamples] = useState<{ original: string; revaluation: string; problem: string } | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const shownMapping = csv.trim() ? mapping : null;
+  const hasBlocking = (preview?.blockingIssues.length ?? 0) > 0;
 
   useEffect(() => {
-    api<{ sampleMessyCsv: string; sampleRevaluationCsv: string }>("/api/sync/aicte-nad")
-      .then((r) => setSamples({ original: r.sampleMessyCsv, revaluation: r.sampleRevaluationCsv }))
+    api<{ sampleMessyCsv: string; sampleRevaluationCsv: string; sampleProblemCsv: string }>("/api/sync/aicte-nad")
+      .then((r) => setSamples({ original: r.sampleMessyCsv, revaluation: r.sampleRevaluationCsv, problem: r.sampleProblemCsv }))
       .catch((e) => setError(errorText(e)));
   }, []);
 
@@ -48,6 +51,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
     setCsv(text);
     setSource(label);
     setPreview(null);
+    setAcknowledged(false);
     setMessage("");
   }
 
@@ -60,7 +64,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
     setBusy(true);
     setError("");
     try {
-      const res = await api<PreviewResponse>("/api/sync/aicte-nad", { action, csvText: csv });
+      const res = await api<PreviewResponse>("/api/sync/aicte-nad", { action, csvText: csv, acknowledgeIssues: action === "SYNC" ? acknowledged : undefined });
       setPreview(res);
       setMessage(res.message);
       if (action === "SYNC") onSynced();
@@ -96,6 +100,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
               <Button size="sm" onClick={() => fileRef.current?.click()}>Choose file</Button>
               <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.original, "Sample ERP export")}>Load sample export</Button>
               <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.revaluation, "Revaluation re-upload")}>Load revaluation re-upload</Button>
+              <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.problem, "Sheet with problems")}>Load sheet with problems</Button>
             </div>
           </div>
           <Button size="sm" disabled={!samples} onClick={() => samples && load(samples.revaluation, "OCR scan (simulated)")}>
@@ -114,6 +119,7 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
                 setCsv(e.target.value);
                 setSource("Pasted");
                 setPreview(null);
+                setAcknowledged(false);
               }}
               rows={8}
               spellCheck={false}
@@ -157,7 +163,20 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-white/10 pt-5">
         <Button disabled={busy || !csv.trim() || Boolean(shownMapping?.missingRequired.length)} onClick={() => run("PREVIEW")}>Preview diff</Button>
-        <Button variant="primary" disabled={busy || !csv.trim() || Boolean(shownMapping?.missingRequired.length)} onClick={() => run("SYNC")}>Sync to NAD</Button>
+        <Button
+          variant="primary"
+          disabled={busy || !preview || Boolean(shownMapping?.missingRequired.length) || (hasBlocking && !acknowledged)}
+          title={!preview ? "Preview the diff first" : undefined}
+          onClick={() => run("SYNC")}
+        >
+          Sync to NAD
+        </Button>
+        {hasBlocking && (
+          <label className="flex items-center gap-2 text-sm text-amber-200">
+            <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+            Sync the rest and leave the excluded rows out
+          </label>
+        )}
       </div>
 
       {error && <div className="mt-4"><Notice tone="red">{error}</Notice></div>}
@@ -171,11 +190,25 @@ export default function MarksheetUploader({ onSynced }: { onSynced: () => void }
               {isNew && <Pill tone="blue" className="ml-2">New to NAD</Pill>}
             </p>
             <div className="flex gap-2">
-              <Pill tone="accent">SGPA {student.sgpa.toFixed(2)}</Pill>
-              <Pill>CGPA {student.cgpa.toFixed(2)}</Pill>
+              <Pill tone="accent">SGPA {student.sgpa === null ? "n/a" : student.sgpa.toFixed(2)}</Pill>
+              <Pill>CGPA {student.cgpa === null ? "n/a" : student.cgpa.toFixed(2)}</Pill>
               <Pill>{student.updatedCumulativeCredits} credits</Pill>
+              {!student.hasPriorRecord && <Pill tone="amber">No prior NAD record</Pill>}
             </div>
           </div>
+          {student.rowIssues.length > 0 && (
+            <ul className="mt-3 space-y-2" aria-label={`Row issues for ${student.studentName}`}>
+              {student.rowIssues.map((r) => (
+                <li key={r.rowNumber} className={`rounded-lg px-3 py-2 text-sm ${r.excluded ? "bg-red-500/10 text-red-200" : "bg-amber-400/10 text-amber-200"}`}>
+                  <span className="font-mono text-xs">Row {r.rowNumber}{r.courseCode ? ` · ${r.courseCode}` : ""}</span>{" "}
+                  <Pill tone={r.excluded ? "red" : "amber"}>{r.excluded ? "Excluded" : "Warning"}</Pill>
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {r.issues.map((i) => <li key={i.code + i.message}>{i.message}</li>)}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[460px] text-left text-sm">
               <caption className="sr-only">Changes for {student.studentName}</caption>

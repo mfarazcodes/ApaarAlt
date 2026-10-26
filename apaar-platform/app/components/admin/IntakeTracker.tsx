@@ -5,15 +5,6 @@ import type { AICTEIntakeCompliance } from "@/lib/nadSyncEngine";
 import { api, errorText } from "../portal/api";
 import { Card, Notice, Pill, ProgressBar, SectionTitle } from "../portal/ui";
 
-// Programme split at the start of the year. It adds up to the institution totals below.
-const PROGRAMMES = [
-  { name: "Computer Science", approved: 360, enrolled: 362, verified: 354 },
-  { name: "Electronics & Comm.", approved: 240, enrolled: 236, verified: 228 },
-  { name: "Mechanical", approved: 240, enrolled: 231, verified: 221 },
-  { name: "Civil", approved: 180, enrolled: 176, verified: 173 },
-  { name: "Electrical", approved: 180, enrolled: 175, verified: 172 },
-];
-
 export default function IntakeTracker({ refreshKey }: { refreshKey: number }) {
   const [c, setC] = useState<AICTEIntakeCompliance | null>(null);
   const [error, setError] = useState("");
@@ -53,17 +44,17 @@ export default function IntakeTracker({ refreshKey }: { refreshKey: number }) {
           </ul>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Pill tone={c.complianceStatus === "HEALTHY_OPTIMAL" ? "accent" : "red"}>{c.enrolmentPercentage}% of intake verified</Pill>
-            <Pill tone="blue">{c.abcSeedingPercentage}% ABC seeded</Pill>
+            <Pill tone={c.complianceStatus === "HEALTHY_OPTIMAL" ? "accent" : "red"}>{c.enrolmentPercentage === null ? "No approved intake" : `${c.enrolmentPercentage}% of intake verified`}</Pill>
+            <Pill tone="blue">{c.abcSeedingPercentage === null ? "-" : `${c.abcSeedingPercentage}% ABC seeded`}</Pill>
             <Pill tone={c.unverifiedGhostCount ? "amber" : "accent"}>{c.unverifiedGhostCount} unverified in ERP</Pill>
           </div>
           <div className="mt-4">
-            <Notice tone={c.complianceStatus === "HEALTHY_OPTIMAL" ? "accent" : "amber"}>{c.aicteNotice}</Notice>
+            <Notice tone={c.complianceStatus === "HEALTHY_OPTIMAL" ? "accent" : c.complianceStatus === "OVER_INTAKE_PENALTY_RISK" ? "red" : "amber"}>{c.aicteNotice}</Notice>
           </div>
 
           <div className="mt-6 overflow-x-auto">
             <table className="w-full min-w-[440px] text-left text-sm">
-              <caption className="mb-2 text-left text-xs uppercase tracking-wider text-white/55">By programme (start of year, sample)</caption>
+              <caption className="mb-2 text-left text-xs uppercase tracking-wider text-white/55">By programme (AICTE approves intake per programme)</caption>
               <thead className="text-xs uppercase tracking-wider text-white/55">
                 <tr>
                   <th scope="col" className="pb-2 pr-3 font-semibold">Programme</th>
@@ -73,13 +64,14 @@ export default function IntakeTracker({ refreshKey }: { refreshKey: number }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.07]">
-                {PROGRAMMES.map((p) => (
-                  <tr key={p.name}>
-                    <td className="py-2 pr-3">{p.name}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{p.approved}</td>
+                {c.programmes.map((p) => (
+                  <tr key={p.programme}>
+                    <td className="py-2 pr-3">{p.programme}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{p.approvedIntake}</td>
                     <td className="py-2 pr-3 text-right tabular-nums">
-                      {p.enrolled}
-                      {p.enrolled > p.approved && <Pill tone="red" className="ml-2">Over intake</Pill>}
+                      {p.erpEnrolled}
+                      {p.status === "OVER_INTAKE_PENALTY_RISK" && <Pill tone="red" className="ml-2">+{p.overBy} over intake</Pill>}
+                      {p.status === "NO_APPROVED_INTAKE" && <Pill tone="amber" className="ml-2">No approved intake</Pill>}
                     </td>
                     <td className="py-2 text-right tabular-nums">{p.verified}</td>
                   </tr>
