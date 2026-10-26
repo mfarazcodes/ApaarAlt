@@ -75,7 +75,7 @@ function MatcherCard() {
 
   function toggleOffline(next: boolean) {
     setOffline(next);
-    setPending(next ? 3 : 0); // reconnecting flushes the BullMQ queue
+    setPending(next ? 3 : 0); // reconnecting sends the queued batches
   }
 
   const pair = PAIRS[index];
@@ -139,7 +139,7 @@ function MatcherCard() {
             <span className={`font-semibold ${pending ? "text-amber-300" : "text-white"}`}>
               {pending} Pending
             </span>{" "}
-            <span className="text-white/45">(BullMQ Ready)</span>
+            <span className="text-white/45">(retries on reconnect)</span>
           </p>
           <Toggle checked={offline} onChange={toggleOffline} label="Simulate offline mode" />
         </div>
@@ -196,7 +196,6 @@ function ReadinessRing({ score }: { score: number }) {
 function TwinCard() {
   const [planAdded, setPlanAdded] = useState(false);
   const [shareStatus, setShareStatus] = useState(true);
-  const [shareId, setShareId] = useState(false);
 
   const earned = 128;
   const total = 160;
@@ -318,11 +317,12 @@ function TwinCard() {
           <li className="flex items-center justify-between gap-3 px-3.5 py-3 text-sm">
             <span className="min-w-0 text-white/85">
               Identity Number:{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">
-                {shareId ? "•••• •••• 4821" : "[Aadhaar Redacted]"}
-              </code>
+              <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">[Aadhaar Redacted]</code>
             </span>
-            <Toggle checked={shareId} onChange={setShareId} label="Share masked identity number" />
+            <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-white/55">
+              <Lock width={16} height={16} className="h-3 w-3 shrink-0" />
+              Never shared
+            </span>
           </li>
         </ul>
       </div>
@@ -469,7 +469,7 @@ function QrRadarCard() {
             <p className="mt-2 text-sm text-white/75">{s.note}</p>
             <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/50">
               <KeyRound width={16} height={16} className="h-3.5 w-3.5 shrink-0 text-accent" />
-              Offline Ed25519 Signature Ready
+              Works offline: Ed25519 check on the device
             </p>
           </div>
         </div>

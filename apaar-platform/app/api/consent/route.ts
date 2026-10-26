@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listAudit } from "@/lib/audit";
+import { appendAudit, listAudit } from "@/lib/audit";
+import { issuePresentation } from "@/lib/credentials";
 import {
   KNOWN_VERIFIERS,
   PURPOSE_KEYS,
@@ -33,6 +34,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("GUARDIAN_COSIGN"), sign: z.boolean() }),
   z.object({ action: z.literal("RAISE_DISPUTE"), field: z.string().min(1).max(60), claimedValue: z.string().max(200).default(""), reason: z.string().min(1).max(1000) }),
   z.object({ action: z.literal("REQUEST_ACCESS"), holderToken: z.string().min(1).max(80), scopes, days, purpose: z.string().max(120).optional() }),
+  z.object({ action: z.literal("CREATE_QR"), scopes: z.array(z.enum(SHARE_SCOPES as [string, ...string[]])).min(1).max(SHARE_SCOPES.length), days: z.number().int().min(1).max(365) }),
 ]);
 
 /** Who may do what. The role comes from the signed session cookie. */
@@ -45,6 +47,7 @@ const ALLOWED: Record<z.infer<typeof Body>["action"], Role[]> = {
   RAISE_DISPUTE: ["STUDENT"],
   GUARDIAN_COSIGN: ["GUARDIAN"],
   REQUEST_ACCESS: ["VERIFIER"],
+  CREATE_QR: ["STUDENT"],
 };
 
 export async function GET(req: Request) {
@@ -118,6 +121,20 @@ export async function POST(req: Request) {
       }
       case "GUARDIAN_COSIGN":
         return NextResponse.json({ success: true, ledger: await setGuardianCoSign(store, studentId, body.sign, actor) });
+      case "CREATE_QR": {
+        const presentation = await issuePresentation(store, studentId, body.scopes as never, body.days);
+        await appendAudit(store, {
+          type: "CONSENT",
+          subject: studentId,
+          action: "QR_CREATED",
+          actorRole: actor.role,
+          actor: actor.label,
+          purposeModified: `qr:${presentation.cid}`,
+          newValue: true,
+          detail: `Created a Smart QR with ${presentation.claimLabels.join(", ")} for ${body.days} days. It ends on ${presentation.expiresAt.slice(0, 10)} or sooner if the credential it was cut from is revoked.`,
+        });
+        return NextResponse.json({ success: true, presentation });
+      }
       case "RAISE_DISPUTE": {
         const r = await raiseDispute(store, studentId, { field: body.field, claimedValue: body.claimedValue, reason: body.reason }, actor);
         return NextResponse.json({ success: true, ledger: r.ledger, dispute: r.dispute });

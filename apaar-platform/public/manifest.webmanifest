@@ -1,0 +1,11 @@
+{
+  "name": "APAAR Bridge Verifier",
+  "short_name": "APAAR Verify",
+  "description": "Verify Smart QR credentials, online or offline.",
+  "start_url": "/employer",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14201b",
+  "theme_color": "#14201b",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

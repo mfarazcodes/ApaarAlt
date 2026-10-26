@@ -12,10 +12,10 @@ import { getIssuerKeySet, signText, verifyText, type IssuerKey } from "./tokeniz
  * the end of the log, but cannot re-sign the head without the key.
  */
 
-export type AuditType = "CONSENT" | "FUZZY_DECISION" | "NAD_SYNC" | "GRADE_CHANGE" | "DISPUTE" | "SYSTEM";
+export type AuditType = "CONSENT" | "FUZZY_DECISION" | "NAD_SYNC" | "GRADE_CHANGE" | "DISPUTE" | "VERIFICATION" | "SYSTEM";
 export type AuditActorRole = "STUDENT" | "GUARDIAN" | "REGISTRAR" | "AICTE" | "VERIFIER" | "SYSTEM" | "DEMO_SIMULATOR";
 
-export const AUDIT_TYPES: AuditType[] = ["CONSENT", "FUZZY_DECISION", "NAD_SYNC", "GRADE_CHANGE", "DISPUTE", "SYSTEM"];
+export const AUDIT_TYPES: AuditType[] = ["CONSENT", "FUZZY_DECISION", "NAD_SYNC", "GRADE_CHANGE", "DISPUTE", "VERIFICATION", "SYSTEM"];
 
 export interface AuditInput {
   type: AuditType;

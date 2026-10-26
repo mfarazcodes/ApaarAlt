@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogOut, RotateCcw, TriangleAlert, UserRound } from "lucide-react";
 import { api, errorText } from "./api";
+import { clearOfflineCache } from "./offlineCache";
 import { Button, ICON } from "./ui";
 
 interface Health {
@@ -25,6 +26,8 @@ export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLa
     setBusy(true);
     try {
       await api("/api/auth/logout", {});
+      // The saved verifier page was loaded under this session, so it does not stay on the device.
+      await clearOfflineCache();
     } finally {
       router.push("/login");
       router.refresh();

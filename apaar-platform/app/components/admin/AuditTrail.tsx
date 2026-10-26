@@ -20,6 +20,7 @@ const TYPE_LABEL: Record<AuditType, string> = {
   NAD_SYNC: "NAD syncs",
   GRADE_CHANGE: "Grade changes",
   DISPUTE: "Disputes",
+  VERIFICATION: "Verifications",
   SYSTEM: "System",
 };
 

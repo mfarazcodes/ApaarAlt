@@ -3,9 +3,10 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
+  manifest: "/manifest.webmanifest",
   title: "APAAR Bridge — Unified Student Data Verification",
   description:
-    "Bridge College ERPs, AICTE compliance, NAD/ABC credits and student consent in one zero-timeout verification layer.",
+    "Bridge College ERPs, AICTE compliance, NAD/ABC credits and student consent in one verification layer that catches mismatches early and keeps working through portal timeouts.",
 };
 
 // Applies the saved accent theme before first paint so the page never flashes the default.

@@ -15,7 +15,7 @@ const TICK_MS = 700;
 const MAX_BACKOFF_S = 32;
 
 /**
- * A browser-side model of the Redis/BullMQ retry queue. Batches added while offline wait with
+ * A browser-side model of a retry queue. It is a simulation, not Redis or BullMQ. Batches added while offline wait with
  * exponential backoff; reconnecting drains them one per tick. Nothing here talks to a real queue.
  */
 export default function RetryQueue() {
@@ -55,7 +55,7 @@ export default function RetryQueue() {
     <Card>
       <SectionTitle
         eyebrow="Offline retry queue"
-        title="Redis / BullMQ batch sync"
+        title="Batch sync with retry"
         hint="Colleges with patchy connectivity keep working. Batches wait locally and retry with backoff. This is a browser simulation."
       />
 

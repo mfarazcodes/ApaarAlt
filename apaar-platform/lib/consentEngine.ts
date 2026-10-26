@@ -248,6 +248,15 @@ function assertCanGrant(l: StoredLedger, s: StudentRecord) {
   }
 }
 
+/** The same gates every grant passes, for callers that issue a QR rather than a share. Read-only. */
+export async function assertStudentCanShare(store: Store, studentId: string): Promise<void> {
+  const l = await getLedger(store, studentId);
+  if (l.apaarStatus === "NOGEN_OPTED_OUT") throw new HttpError(409, "Student is in NOGEN (opted-out) status. Re-enrol in APAAR before sharing anything.");
+  if (l.isMinor && l.guardian.coSign !== "SIGNED") {
+    throw new HttpError(403, "Guardian co-sign required: Section 9(1) of the DPDP Act requires verifiable consent from a parent or guardian before processing a child's data.");
+  }
+}
+
 /* ── Purposes ────────────────────────────────────────────────────────── */
 
 export async function updatePurpose(store: Store, studentId: string, purpose: string, allow: boolean, actor: Actor): Promise<StudentConsentLedger> {

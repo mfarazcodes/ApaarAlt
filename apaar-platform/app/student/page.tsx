@@ -2,6 +2,7 @@ import ConsentWallet from "../components/student/ConsentWallet";
 import DigitalTwinTimeline from "../components/student/DigitalTwinTimeline";
 import NepForecaster from "../components/student/NepForecaster";
 import SkillGapMap from "../components/student/SkillGapMap";
+import SmartQrCreator from "../components/student/SmartQrCreator";
 import PortalShell from "../components/portal/PortalShell";
 import { Notice } from "../components/portal/ui";
 import { currentSession } from "@/lib/session-server";
@@ -32,6 +33,7 @@ export default async function StudentPage() {
         ) : (
           !isGuardian && <Notice tone="blue">The academic twin sample data belongs to the main demo student (Rahul). This student has the consent wallet only.</Notice>
         )}
+        {hasTwin && <SmartQrCreator />}
         <ConsentWallet />
       </div>
     </PortalShell>

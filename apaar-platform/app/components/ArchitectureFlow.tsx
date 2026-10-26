@@ -14,7 +14,7 @@ const TABS = [
       "Upload CSV or OCR a legacy sheet",
       "AI schema mapper converts Legacy → NAD",
       "Fuzzy match assistant resolves name drift",
-      "Offline batch sync through the BullMQ queue",
+      "Offline batch sync with automatic retry",
     ],
   },
   {
@@ -48,7 +48,7 @@ const TABS = [
     summary: "Verify a degree in seconds, on or off the network, without seeing the marksheet.",
     steps: [
       "Scan the Smart Credential QR",
-      "Offline Ed25519 signature check",
+      "Ed25519 signature check, even with no network",
       "Consent-gated minimal disclosure",
       "Authentic, revoked or superseded result",
     ],

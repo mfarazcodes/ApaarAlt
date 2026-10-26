@@ -1,4 +1,5 @@
 import PortalShell from "../components/portal/PortalShell";
+import OfflineSupport from "../components/employer/OfflineSupport";
 import SmartVerifier from "../components/employer/SmartVerifier";
 
 export default function EmployerPage() {
@@ -8,6 +9,7 @@ export default function EmployerPage() {
       title="Verify a degree without seeing a marksheet"
       subtitle="Scan a Smart QR or look up an APAAR ID. You get live status and the yes-or-no claims the student allowed, with every ID number redacted."
     >
+      <OfflineSupport />
       <SmartVerifier />
     </PortalShell>
   );
