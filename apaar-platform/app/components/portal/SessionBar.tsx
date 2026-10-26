@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogOut, RotateCcw, TriangleAlert, UserRound } from "lucide-react";
 import { api, errorText } from "./api";
+import { useT } from "./I18n";
 import { clearOfflineCache } from "./offlineCache";
 import { Button, ICON } from "./ui";
 
@@ -19,6 +20,7 @@ interface Health {
 /** Who is signed in, how to switch, and (for admin roles in demo mode) a way to reset the demo data. */
 export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLabel: string; canReset: boolean }) {
   const router = useRouter();
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
@@ -50,20 +52,20 @@ export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLa
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-white/70">
       <span className="flex items-center gap-2">
         <UserRound width={16} height={16} className={ICON} />
-        Signed in as <strong className="font-semibold text-white">{name}</strong>
+        {t("session.signedInAs")} <strong className="font-semibold text-white">{name}</strong>
         <span className="rounded-md bg-white/10 px-2 py-0.5 text-xs">{roleLabel}</span>
       </span>
       <Link href="/login" className="underline decoration-white/30 underline-offset-4 hover:text-white">
-        Switch role
+        {t("session.switchRole")}
       </Link>
       <Button size="sm" disabled={busy} onClick={signOut}>
         <LogOut width={16} height={16} className={ICON} />
-        Sign out
+        {t("session.signOut")}
       </Button>
       {canReset && (
         <Button size="sm" variant="danger" disabled={busy} onClick={reset}>
           <RotateCcw width={16} height={16} className={ICON} />
-          Reset demo data
+          {t("session.reset")}
         </Button>
       )}
       {note && <span role="alert" className="text-red-300">{note}</span>}

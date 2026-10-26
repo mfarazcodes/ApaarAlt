@@ -3,15 +3,18 @@ import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { demoMode } from "@/lib/config";
-import { PAGE_ACCESS, ROLE_LABEL } from "@/lib/personas";
+import { translate } from "@/lib/i18n";
+import { currentLang } from "@/lib/lang-server";
+import { PAGE_ACCESS } from "@/lib/personas";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { I18nProvider, LanguageSwitcher } from "./I18n";
 import { ConfigBanner, SessionBar } from "./SessionBar";
 import ThemeSwitcher from "./ThemeSwitcher";
 
 const PORTALS = [
-  { href: "/admin", label: "College & AICTE" },
-  { href: "/student", label: "Digital Twin" },
-  { href: "/employer", label: "Smart QR Verify" },
+  { href: "/admin", key: "nav.admin" },
+  { href: "/student", key: "nav.student" },
+  { href: "/employer", key: "nav.employer" },
 ] as const;
 
 /* A calmer cousin of the hero circuit: a few traces and one pulse, behind everything. */
@@ -68,10 +71,12 @@ export default async function PortalShell({
   subtitle: string;
   children: ReactNode;
 }) {
+  const lang = await currentLang();
   const session = await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   // A person only sees the portals their role can open.
   const portals = session ? PORTALS.filter((p) => PAGE_ACCESS[p.href].includes(session.role)) : PORTALS;
   return (
+    <I18nProvider lang={lang}>
     <div className="min-h-screen p-3 sm:p-5">
       <div className="relative mx-auto max-w-[1400px] overflow-hidden rounded-[28px] bg-deep text-white">
         <Backdrop />
@@ -84,7 +89,7 @@ export default async function PortalShell({
             <span className="text-[17px] font-semibold tracking-tight">APAAR Bridge</span>
           </Link>
 
-          <nav aria-label="Portals" className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
+          <nav aria-label={translate(lang, "nav.portals")} className="order-3 flex w-full gap-1 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl sm:order-none sm:w-auto">
             {portals.map((p) => (
               <Link
                 key={p.href}
@@ -94,19 +99,20 @@ export default async function PortalShell({
                   p.href === active ? "bg-paper text-deep" : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                {p.label}
+                {translate(lang, p.key)}
               </Link>
             ))}
           </nav>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+            <LanguageSwitcher />
             <ThemeSwitcher variant="dark" />
           </div>
         </header>
 
         {session && (
           <div className="relative z-10 px-4 pt-4 sm:px-8">
-            <SessionBar name={session.name} roleLabel={ROLE_LABEL[session.role]} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
+            <SessionBar name={session.name} roleLabel={translate(lang, `role.${session.role}`)} canReset={demoMode() && (session.role === "REGISTRAR" || session.role === "AICTE")} />
           </div>
         )}
         <ConfigBanner />
@@ -120,5 +126,6 @@ export default async function PortalShell({
         </div>
       </div>
     </div>
+    </I18nProvider>
   );
 }

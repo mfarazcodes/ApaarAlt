@@ -7,6 +7,7 @@ import { baseResult, type CredentialStatus, type VerificationResult } from "@/li
 import type { SampleCredential } from "@/lib/credentials";
 import { verifyOffline } from "@/lib/qrVerify";
 import { api, errorText, formatDate } from "../portal/api";
+import { useT } from "../portal/I18n";
 import { Button, Card, Eyebrow, ICON, Notice, Pill, SectionTitle, Toggle, inputClass } from "../portal/ui";
 import CameraScanner from "./CameraScanner";
 import ConsentPhone from "./ConsentPhone";
@@ -34,6 +35,7 @@ const ENGINE_LABEL = { server: "Checked by the server", webcrypto: "Checked on t
 const eventStatus = (s: CredentialStatus): OfflineEvent["status"] => (s === "AUTHENTIC" || s === "EXPIRED" || s === "NOT_FOUND" ? s : "INVALID_SIGNATURE");
 
 export default function SmartVerifier() {
+  const { t } = useT();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [cached, setCached] = useState<CachedKeys | null>(null);
   const [online, setOnline] = useState(true);
@@ -162,22 +164,22 @@ export default function SmartVerifier() {
     <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <div className="space-y-6">
         <Card>
-          <SectionTitle eyebrow="Smart credential verifier" title="Check a credential" hint="Enter an APAAR ID or scan a Smart QR. Only what the student agreed to share comes back." />
+          <SectionTitle eyebrow={t("ver.eyebrow")} title={t("ver.title")} hint={t("ver.hint")} />
 
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
               <div>
                 <p className="flex items-center gap-2 text-sm font-medium">
                   <WifiOff width={16} height={16} className={ICON} />
-                  Offline verification mode
+                  {t("ver.offlineMode")}
                 </p>
-                <p className="text-xs text-white/60">Checks the Ed25519 signature on this device with no network. It cannot see revocation.</p>
+                <p className="text-xs text-white/60">{t("ver.offlineHint")}</p>
               </div>
-              <Toggle checked={offline} onChange={setOffline} label="Offline verification mode" />
+              <Toggle checked={offline} onChange={setOffline} label={t("ver.offlineMode")} />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Pill tone={online ? "accent" : "amber"}>{online ? "Network available" : "No network"}</Pill>
+              <Pill tone={online ? "accent" : "amber"}>{online ? t("ver.network") : t("ver.noNetwork")}</Pill>
               {cached && cached.keys.length > 0 ? (
                 <Pill>
                   <KeyRound width={16} height={16} className="h-3.5 w-3.5 shrink-0" />
@@ -213,10 +215,10 @@ export default function SmartVerifier() {
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" disabled={busy || !input.trim()} onClick={submit}>
                 <Search width={16} height={16} className={ICON} />
-                Verify
+                {t("ver.verify")}
               </Button>
               <Button disabled={busy || !(lastQr || input.startsWith("APAARQR1."))} onClick={tamper} title="Alter the QR to see signature checking catch it">
-                Simulate tampered QR
+                {t("ver.tamper")}
               </Button>
             </div>
 
@@ -229,7 +231,7 @@ export default function SmartVerifier() {
           </div>
 
           <div className="mt-6 border-t border-white/10 pt-5">
-            <Eyebrow>Scan a sample QR</Eyebrow>
+            <Eyebrow>{t("ver.sample")}</Eyebrow>
             {catalog ? (
               <ul className="mt-3 space-y-2">
                 {catalog.samples.map((s) => (
@@ -259,7 +261,7 @@ export default function SmartVerifier() {
       </div>
 
       <Card>
-        <SectionTitle eyebrow="Result" title="Live credential status" />
+        <SectionTitle eyebrow={t("ver.result")} title={t("ver.live")} />
         {error && (
           <div className="mb-4">
             <Notice tone="red">{error}</Notice>
@@ -269,7 +271,7 @@ export default function SmartVerifier() {
         {!result && !error && (
           <div className="grid place-items-center rounded-xl border border-dashed border-white/15 px-6 py-16 text-center">
             <QrCode width={16} height={16} className="mb-4 h-10 w-10 shrink-0 text-white/35" />
-            <p className="text-sm text-white/65">Nothing verified yet. Scan a sample QR to see each status.</p>
+            <p className="text-sm text-white/65">{t("ver.nothing")}</p>
           </div>
         )}
 
@@ -278,7 +280,7 @@ export default function SmartVerifier() {
             <div className={`flex items-center gap-4 rounded-2xl border p-5 ${BANNER_BG[view.tone]}`}>
               <view.Icon width={40} height={40} className={`h-10 w-10 shrink-0 ${view.text}`} strokeWidth={2} />
               <div className="min-w-0">
-                <p className={`text-2xl font-semibold tracking-tight ${view.text}`}>{result.headline}</p>
+                <p className={`text-2xl font-semibold tracking-tight ${view.text}`}>{result.status === "SUPERSEDED" ? result.headline.replace("SUPERSEDED", t("status.SUPERSEDED")) : t(`status.${result.status}`)}</p>
                 <p className="mt-0.5 text-sm text-white/75">{result.detail}</p>
               </div>
             </div>
@@ -292,16 +294,16 @@ export default function SmartVerifier() {
 
             {/* minimal-disclosure claims */}
             <div className="mt-6">
-              <Eyebrow>Consented claims</Eyebrow>
+              <Eyebrow>{t("ver.claims")}</Eyebrow>
               {result.claims ? (
                 <ul className="mt-3 divide-y divide-white/10 rounded-xl border border-white/10">
                   {result.claims.map((c) => (
                     <li key={c.key} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                       <span>{c.label}</span>
                       {c.value ? (
-                        <Pill tone="accent"><CheckCircle2 width={16} height={16} className="h-3.5 w-3.5 shrink-0" />Yes</Pill>
+                        <Pill tone="accent"><CheckCircle2 width={16} height={16} className="h-3.5 w-3.5 shrink-0" />{t("ver.yes")}</Pill>
                       ) : (
-                        <Pill tone="neutral">Not met</Pill>
+                        <Pill tone="neutral">{t("ver.notMet")}</Pill>
                       )}
                     </li>
                   ))}
@@ -311,15 +313,15 @@ export default function SmartVerifier() {
                   <Lock width={16} height={16} className={`${ICON} mt-0.5`} />
                   <span>
                     {result.consent.state === "OPTED_OUT"
-                      ? "The student opted out of APAAR. No claims are released."
+                      ? t("ver.optedOut")
                       : result.consent.state === "NOT_GRANTED" && result.status === "AUTHENTIC"
-                        ? "Withheld. The student has not allowed this verifier to see any claims."
-                        : "Claims are only released for an authentic credential."}
+                        ? t("ver.withheld")
+                        : t("ver.onlyAuthentic")}
                   </span>
                 </div>
               )}
               <dl className="mt-3 flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3 text-sm">
-                <dt className="text-white/65">Identity number</dt>
+                <dt className="text-white/65">{t("ver.identity")}</dt>
                 <dd className="font-mono text-xs">{result.identity}</dd>
               </dl>
               {result.consent.state === "GRANTED" && result.consent.expiresAt && (
@@ -332,7 +334,7 @@ export default function SmartVerifier() {
 
             {/* checks */}
             <div className="mt-6">
-              <Eyebrow>What was checked</Eyebrow>
+              <Eyebrow>{t("ver.checked")}</Eyebrow>
               <ul className="mt-3 space-y-2">
                 {result.checks.map((c) => (
                   <li key={c.name} className="flex items-start gap-3 text-sm">

@@ -5,10 +5,13 @@ import SkillGapMap from "../components/student/SkillGapMap";
 import SmartQrCreator from "../components/student/SmartQrCreator";
 import PortalShell from "../components/portal/PortalShell";
 import { Notice } from "../components/portal/ui";
+import { translate } from "@/lib/i18n";
+import { currentLang } from "@/lib/lang-server";
 import { currentSession } from "@/lib/session-server";
 import { profileFor, twinFor } from "@/lib/studentData";
 
 export default async function StudentPage() {
+  const lang = await currentLang();
   const session = await currentSession();
   const isGuardian = session?.role === "GUARDIAN";
   // Students with an academic record get the twin. The guardian sees the consent side only.
@@ -19,12 +22,8 @@ export default async function StudentPage() {
   return (
     <PortalShell
       active="/student"
-      title={isGuardian ? "Guardian consent" : "Your academic digital twin"}
-      subtitle={
-        isGuardian
-          ? "Under the DPDP Act, a child's data can only be shared once a parent or guardian agrees. You can give or withdraw that agreement here."
-          : "One living record of subjects, credits, internships and certificates, with a forecast for what to take next and a wallet that keeps you in control of who sees it."
-      }
+      title={translate(lang, isGuardian ? "student.guardianTitle" : "student.title")}
+      subtitle={translate(lang, isGuardian ? "student.guardianSubtitle" : "student.subtitle")}
     >
       <div className="space-y-6">
         {hasTwin ? (
@@ -35,7 +34,7 @@ export default async function StudentPage() {
             <SkillGapMap studentId={studentId} />
           </>
         ) : (
-          !isGuardian && <Notice tone="blue">This sample student has no academic record yet, so only the consent wallet is shown.</Notice>
+          !isGuardian && <Notice tone="blue">{translate(lang, "student.noRecord")}</Notice>
         )}
         {hasTwin && <SmartQrCreator />}
         <ConsentWallet />

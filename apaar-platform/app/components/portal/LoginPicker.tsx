@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { ROLE_LABEL, type Persona } from "@/lib/personas";
+import type { Persona } from "@/lib/personas";
+import { useT } from "./I18n";
 import { api, errorText } from "./api";
 import { ICON, Notice, Pill } from "./ui";
 
 export default function LoginPicker({ personas, next }: { personas: Persona[]; next?: string }) {
   const router = useRouter();
+  const { t } = useT();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -43,11 +45,11 @@ export default function LoginPicker({ personas, next }: { personas: Persona[]; n
               className="group flex h-full w-full flex-col rounded-2xl border border-white/[0.09] bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-5 text-left transition hover:border-accent/50 disabled:opacity-60"
             >
               <span className="flex items-center justify-between gap-3">
-                <Pill tone="accent">{ROLE_LABEL[p.role]}</Pill>
+                <Pill tone="accent">{t(`role.${p.role}`)}</Pill>
                 <ArrowRight width={16} height={16} className={`${ICON} text-white/45 transition group-hover:translate-x-0.5 group-hover:text-accent`} />
               </span>
               <span className="mt-3 text-lg font-semibold tracking-tight">{p.name}</span>
-              <span className="mt-1 text-sm text-white/60">{busy === p.id ? "Signing in…" : p.blurb}</span>
+              <span className="mt-1 text-sm text-white/60">{busy === p.id ? t("login.signingIn") : t(`persona.${p.id}`)}</span>
             </button>
           </li>
         ))}
