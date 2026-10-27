@@ -4,12 +4,16 @@ import { Download, TrendingUp } from "lucide-react";
 import { SAMPLE_ADMISSION_SERIES, SPIKE_DEFAULTS, detectAdmissionSpikes } from "@/lib/admissionSpike";
 import { toCsv } from "@/lib/csvExport";
 import { downloadCsv } from "../portal/csvDownload";
+import { useT } from "../portal/I18n";
 import { Button, Card, ICON, Pill, SectionTitle } from "../portal/ui";
+import { useReportStat } from "./ConsoleStats";
 
 const flags = detectAdmissionSpikes(SAMPLE_ADMISSION_SERIES);
 
 /** Flags a programme whose latest day of admissions is far above its own recent average. */
 export default function SpikeDetector() {
+  const { t } = useT();
+  useReportStat("spikes", flags.length);
   function exportFlags() {
     downloadCsv(
       "admission-spikes.csv",
@@ -32,11 +36,7 @@ export default function SpikeDetector() {
 
   return (
     <Card>
-      <SectionTitle
-        eyebrow="Admission spike detector"
-        title="Unusual jumps in admissions"
-        hint={`A programme is flagged when one day has at least ${SPIKE_DEFAULTS.minAdmitted} admissions and ${SPIKE_DEFAULTS.minRatio}x its recent average. Sample data.`}
-      />
+      <SectionTitle title={t("con.sp.title")} hint={t("con.sp.hint", { a: SPIKE_DEFAULTS.minAdmitted, r: SPIKE_DEFAULTS.minRatio })} />
 
       <ul className="space-y-3">
         {flags.map((f) => (
@@ -46,22 +46,22 @@ export default function SpikeDetector() {
                 <TrendingUp width={16} height={16} className={`${ICON} text-red-300`} />
                 {f.programme}, {f.college}
               </p>
-              <Pill tone={f.severity === "HIGH" ? "red" : "amber"}>{f.severity}</Pill>
+              <Pill tone={f.severity === "HIGH" ? "red" : "amber"}>{t(`con.sev.${f.severity}`)}</Pill>
             </div>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-white/70">
               {f.reasons.map((r) => <li key={r}>{r}</li>)}
             </ul>
           </li>
         ))}
-        {flags.length === 0 && <li className="text-sm text-white/60">No unusual jumps.</li>}
+        {flags.length === 0 && <li className="text-sm text-white/70">{t("con.sp.none")}</li>}
       </ul>
-      <p className="mt-3 text-xs text-white/50">
-        {SAMPLE_ADMISSION_SERIES.length > 0 && "Programmes with under a week of history are not judged."} A flag is a prompt to ask the college, not a finding.
+      <p className="mt-3 text-xs text-white/65">
+        {SAMPLE_ADMISSION_SERIES.length > 0 && `${t("con.sp.week")} `}{t("con.sp.note")}
       </p>
       <div className="mt-4">
         <Button size="sm" onClick={exportFlags}>
           <Download width={16} height={16} className={ICON} />
-          Export flags as CSV
+          {t("con.export")}
         </Button>
       </div>
     </Card>

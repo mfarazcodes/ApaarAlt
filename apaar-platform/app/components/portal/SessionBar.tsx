@@ -7,7 +7,7 @@ import { LogOut, RotateCcw, TriangleAlert, UserRound } from "lucide-react";
 import { api, errorText } from "./api";
 import { useT } from "./I18n";
 import { clearOfflineCache } from "./offlineCache";
-import { Button, ICON } from "./ui";
+import { Button, ICON, Modal } from "./ui";
 
 interface Health {
   ok: boolean;
@@ -23,6 +23,7 @@ export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLa
   const { t } = useT();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
 
   async function signOut() {
     setBusy(true);
@@ -37,7 +38,7 @@ export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLa
   }
 
   async function reset() {
-    if (!window.confirm("Reset all demo data (consent, credentials, sync state and the audit trail)?")) return;
+    setConfirmReset(false);
     setBusy(true);
     try {
       await api("/api/admin/reset", {});
@@ -63,12 +64,19 @@ export function SessionBar({ name, roleLabel, canReset }: { name: string; roleLa
         {t("session.signOut")}
       </Button>
       {canReset && (
-        <Button size="sm" variant="danger" disabled={busy} onClick={reset}>
+        <Button size="sm" variant="danger" disabled={busy} onClick={() => setConfirmReset(true)}>
           <RotateCcw width={16} height={16} className={ICON} />
           {t("session.reset")}
         </Button>
       )}
       {note && <span role="alert" className="text-red-300">{note}</span>}
+      <Modal open={confirmReset} onClose={() => setConfirmReset(false)} title={t("session.resetTitle")}>
+        <p className="text-sm text-white/75">{t("session.resetBody")}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => setConfirmReset(false)}>{t("session.cancel")}</Button>
+          <Button variant="danger" onClick={reset}>{t("session.resetConfirm")}</Button>
+        </div>
+      </Modal>
     </div>
   );
 }

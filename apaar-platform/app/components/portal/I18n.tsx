@@ -24,7 +24,7 @@ function saveLang(code: Lang) {
 }
 
 /** English / Hindi. Saves the choice in a cookie so server components render in it too, then refreshes. */
-export function LanguageSwitcher() {
+export function LanguageSwitcher({ variant = "dark" }: { variant?: "dark" | "light" }) {
   const router = useRouter();
   const { lang, t } = useT();
 
@@ -34,7 +34,7 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <div role="group" aria-label={t("lang.label")} className="flex items-center gap-1 rounded-xl bg-white/[0.07] p-1">
+    <div role="group" aria-label={t("lang.label")} className={`flex items-center gap-1 rounded-xl p-1 ${variant === "light" ? "bg-deep/[0.06]" : "bg-white/[0.07]"}`}>
       {LANGS.map((l) => (
         <button
           key={l.code}
@@ -42,7 +42,7 @@ export function LanguageSwitcher() {
           lang={l.code}
           aria-pressed={lang === l.code}
           onClick={() => pick(l.code)}
-          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${lang === l.code ? "bg-paper text-deep" : "text-white/70 hover:text-white"}`}
+          className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${lang === l.code ? (variant === "light" ? "bg-deep text-white" : "bg-paper text-deep") : variant === "light" ? "text-deep/70 hover:text-deep" : "text-white/70 hover:text-white"}`}
         >
           {l.label}
         </button>

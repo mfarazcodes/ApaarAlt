@@ -59,7 +59,7 @@ export function seedState(): SyncState {
   return {
     meta: {
       institutionCode: "AICTE-DEMO-0001",
-      institutionName: "Vindhya Institute of Technology (sample data)",
+      institutionName: "Vindhya Institute of Technology",
       aicteApprovalReference: "AICTE/EOA/2024-25/DEMO-0001",
       academicYear: "2024-25",
     },

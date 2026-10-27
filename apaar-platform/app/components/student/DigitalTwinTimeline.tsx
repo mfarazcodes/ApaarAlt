@@ -20,7 +20,6 @@ export default function DigitalTwinTimeline({ studentId }: { studentId: string }
   return (
     <Card>
       <SectionTitle
-        eyebrow={t("twin.eyebrow")}
         title={t("twin.title")}
         hint={t("twin.hint", { program: profile?.program ?? t("twin.yourProgramme") })}
       />

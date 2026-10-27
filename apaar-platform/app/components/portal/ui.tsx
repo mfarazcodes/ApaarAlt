@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useT } from "./I18n";
 
 /** Every icon in the portals is sized with this so nothing can expand to full width. */
@@ -15,7 +15,7 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
 }
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">{children}</p>;
+  return <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55">{children}</p>;
 }
 
 export function SectionTitle({ eyebrow, title, hint }: { eyebrow?: string; title: string; hint?: ReactNode }) {
@@ -46,6 +46,11 @@ export function Pill({ tone = "neutral", children, className = "" }: { tone?: To
   );
 }
 
+/** A grey placeholder block shown while data loads, so the layout does not jump. */
+export function Skeleton({ className = "h-24" }: { className?: string }) {
+  return <div aria-hidden="true" className={`animate-pulse rounded-xl bg-white/[0.07] motion-reduce:animate-none ${className}`} />;
+}
+
 export function Notice({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <div role={tone === "red" ? "alert" : "status"} className={`rounded-xl px-3.5 py-3 text-sm ${TONES[tone]}`}>
@@ -73,10 +78,11 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-accent" : "bg-white/20"}`}
+      // 24px tall to match WCAG 2.2 target size, with an invisible 44px hit area around it.
+      className={`relative h-6 w-11 shrink-0 rounded-full transition before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-[''] disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-accent" : "bg-white/25"}`}
     >
       <span
-        className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`}
+        className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : ""}`}
       />
     </button>
   );
@@ -179,7 +185,7 @@ export function Tabs<T extends string>({
         >
           {t.label}
           {t.badge && (
-            <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${value === t.id ? "bg-deep/10 text-deep" : "bg-white/10 text-white/70"}`}>
+            <span className={`rounded-md px-1.5 py-0.5 text-xs ${value === t.id ? "bg-deep/10 text-deep" : "bg-white/10 text-white/70"}`}>
               {t.badge}
             </span>
           )}
@@ -268,3 +274,16 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export const inputClass =
   "w-full rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/55 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+
+/** A closed-by-default section for technical detail or demo-only controls. Keyboard accessible (a native details element). */
+export function Disclosure({ summary, children, className = "" }: { summary: string; children: ReactNode; className?: string }) {
+  return (
+    <details className={`group rounded-xl border border-white/10 bg-white/[0.03] ${className}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/[0.06]">
+        <ChevronRight width={16} height={16} className="h-4 w-4 shrink-0 transition group-open:rotate-90" />
+        {summary}
+      </summary>
+      <div className="border-t border-white/10 p-3.5">{children}</div>
+    </details>
+  );
+}

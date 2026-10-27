@@ -40,7 +40,7 @@ export const PROGRAM_TOTAL_CREDITS = 160;
 export const STUDENT_PROFILE = {
   label: "Rahul K.V.",
   program: "B.Tech Computer Science & Engineering",
-  institution: "Vindhya Institute of Technology (sample data)",
+  institution: "Vindhya Institute of Technology",
   rollNumber: "2023-CS-041",
 };
 
@@ -290,19 +290,19 @@ function deriveTwin(base: TwinSemester[], spec: TwinSpec): TwinSemester[] {
 
 const SPECS: Record<string, { profile: StudentProfile; spec: TwinSpec }> = {
   "STU-RKV": {
-    profile: { label: "Rahul K.V.", roll: "2023-CS-041", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Solid record, one backlog cleared, 12 credits short on the current plan." },
+    profile: { label: "Rahul K.V.", roll: "2023-CS-041", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology", story: "Solid record, one backlog cleared, 12 credits short on the current plan." },
     spec: { gradeShift: 0, backlog: "base", planned: [12, 8] },
   },
   "STU-AB": {
-    profile: { label: "Ananya Banerjee", roll: "2023-CS-007", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "Strong record, no backlogs, on track for 160 credits." },
+    profile: { label: "Ananya Banerjee", roll: "2023-CS-007", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology", story: "Strong record, no backlogs, on track for 160 credits." },
     spec: { gradeShift: 1, backlog: "none", planned: [20, 15] },
   },
   "STU-IQ": {
-    profile: { label: "Imran Q.", roll: "2023-CS-066", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "One failed course not yet retaken, and short on credits." },
+    profile: { label: "Imran Q.", roll: "2023-CS-066", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology", story: "One failed course not yet retaken, and short on credits." },
     spec: { gradeShift: -1, backlog: "open", planned: [12, 8], noSwayam: true },
   },
   "STU-PL": {
-    profile: { label: "Priya L.", roll: "2023-CS-093", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology (sample data)", story: "A large credit shortfall: the plan leaves her well under 160." },
+    profile: { label: "Priya L.", roll: "2023-CS-093", program: "B.Tech Computer Science & Engineering", institution: "Vindhya Institute of Technology", story: "A large credit shortfall: the plan leaves her well under 160." },
     spec: { gradeShift: -2, backlog: "none", planned: [9, 6], noSwayam: true },
   },
 };
