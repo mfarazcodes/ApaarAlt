@@ -53,7 +53,6 @@ export default function IncidentClock() {
   return (
     <Card>
       <SectionTitle
-        eyebrow="Incident readiness"
         title="CERT-In and Data Protection Board clocks"
         hint="Start the statutory timers from the moment an incident is noticed. Drafts are for the incident commander to edit."
       />

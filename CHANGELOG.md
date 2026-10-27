@@ -106,4 +106,42 @@ The Hindi text, the national figures and every person, college and ID number are
 - `.env.example` now lists `CRON_SECRET` and the one-line format for `ISSUER_RETIRED_PUBLIC_KEYS`. Both were wrong or missing before.
 - A new `--accent-soft` colour token is used for accent-coloured text on dark surfaces. `--accent` is unchanged and still used for fills and glows.
 - `axe-core` is a dev dependency, used only by the browser audit.
-- Nothing has been pushed. All of this work is on the local branch `feat/hardening-and-features`; `main` on GitHub is untouched by it.
+- The hardening work was merged into `main` by pull request #1. The UI pass below is on its own branch.
+
+## UI pass (branch `ui/simplify-and-polish`)
+
+A review of the site as a visitor sees it (judges, students, registrars, employers), followed by the fixes. IDs are the review's: **G** = site-wide, **A** = per-section findings, **U** = UI bugs. The review document itself is not in the repo; each ID is described here.
+
+### Site-wide
+
+| ID | Status | Notes |
+|---|---|---|
+| G1 / U1 developer banner shown to everyone | Done | Config warnings show only to a registrar, an AICTE officer or in development. Everyone else sees a small "Demo · sample data" chip. |
+| G2 five names per portal | Done | **Colleges · AICTE · Students · Employers**, from one function (`portalKey`) used by the navbar, hero, footer, shell, tabs and sign-in. |
+| G3 theme dots | Done | Switcher removed from every header, with its storage script. The three colour sets remain in the CSS, but nothing in the UI selects them. |
+| G4 repeated eyebrows | Done | Eyebrows that repeated the title or named an internal module are gone. Small section labels inside cards stay. |
+| G5 one-item nav | Done | A role with one portal sees its name, not a menu. |
+| G6 "(sample data)" in names | Done | Removed from institution names; one chip in the shell instead. |
+| G7 / U6 small targets and text | Done | Switch is 24 px with a 44 px hit area. No text under 12 px. |
+| G8 / U5 `<html lang>` | Done | Rendered on the server from the language cookie (this makes the landing page dynamic, not static). |
+| G9 landing in English only | Done | Landing page translated, with the switcher. |
+| G10 / U19 `window.confirm` | Done | Reset uses the app dialog, translated. |
+| G11 success feedback | Partly done | Toasts for sharing, stopping, making a QR, sending a report, saving a decision and sending to NAD. Smaller toggles (purposes, master switch) show their new state but no toast. |
+| G12 loading states | Partly done | A skeleton helper exists and the sharing page uses it. Other cards still say "loading" or stay empty until data arrives. |
+
+### Landing, sign-in, student, college, AICTE, employer
+
+| ID | Status | Notes |
+|---|---|---|
+| A2 landing | Done | New hero, three static example cards instead of the fake "Live" badge, offline toggle and scan button, one "How it works" section instead of two, the "Mohd/Mohammad 93%" card replaced by "same person, fix the spelling", nav link and "Open /admin" button fixed, every call to action goes to sign-in with a hint (U7-U10, U25). |
+| A3 sign-in | Done | Personas grouped by role, with a Step 1 / 2 / 3 path matching the demo script and plain descriptions. |
+| A4 student portal | Done | Three tabs (tab kept in the URL), summary strip, demo story only in demo mode, one shared share dialog with the same defaults for employers and for QR (U13, U14), audit and identity pills and the locked tracking toggle removed, plain wording, notice language follows the page (U3), printable receipt with JSON under More (U15), dispute errors stay in the dialog (U24), placeholders and labels translated (U4). |
+| A4 forecast | Done | NEP exit, credit forecast and SWAYAM cap run in the browser (U2). "Earned by semester N" wording (U16), no "+0 SWAYAM" card (U17), skill credits start off (U18), engine sentences translated. |
+| A5 college console | Done | Today strip, cards in working order, three-step uploader with human column names and a sample menu, raw CSV under "Show the data as text", New/Changed/Removed, exact matches collapsed, one colour per status (U20), scores under Details, plain queue text with demo controls under Demo tools (U21). |
+| A6 AICTE view | Done | At a glance strip, formula under "How the score works", activity log by When / What / Who with hashes and the tamper test under Details, compliance clocks collapsed. |
+| A7 employer | Done | Camera, upload or paste (paste collapsed), offline detected automatically (the switch is a demo tool), result directly after the input on a phone (U12), four plain checks and "No ID numbers are shown", technical details collapsed, bulk API moved to `/employer/developers` (U23). |
+| Hindi coverage (U4) | Partly done | All of the above is translated. Text the engines produce (course and skill names, match explanations, verification details and limits, server messages) and the incident-clock card stay English. The Hindi is a draft. |
+
+### How it was checked
+
+`npm run typecheck`, `npm run lint`, `npm test` (213 tests, with new checks for the variable translation keys) and `npm run build` pass. The browser scenarios were updated for the new screens and all pass on a production build in Microsoft Edge: roles and gating, cross-role consent, minor and guardian, registrar, AICTE, disputes and API, OCR, Hindi, keyboard, and the offline run. The axe-core audit reports no violations on 19 page states with every collapsible section opened. Screenshots at 1440 px and 390 px (no horizontal overflow on any page) are in `apaar-platform/docs/screenshots/`. Not done: a screen-reader pass, a real phone, browsers other than Edge.
